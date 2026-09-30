@@ -1,151 +1,116 @@
 # Scope
 
-Scope is the set of publications OAM treats as the world. It decides two things at once:
+OpenAlex contains much more than research articles: preprints, datasets, book chapters, theses, editorials. The **scope** is the set of papers OAM keeps. It decides two things:
 
-- **the population** — which works get a bin, a percentile and an MNCS
-- **the citation universe** — a citation only counts if the *citing* work is also in scope
+- **which papers get a score.** A paper outside the scope is reported, but not scored.
+- **which citations count.** A citation counts only when the citing paper is in scope too.
 
-Those are deliberately the same set. A citation from a work OAM would not itself score
-would inflate the numerator against a denominator built without it.
+Both use the same set on purpose. Counting citations from papers that are themselves excluded would inflate every score against averages computed without them.
 
-Everything below follows from one dict, `SCOPE` in [`../oam/config.py`](../oam/config.py).
-A work is in scope when every criterion holds.
+A paper is in scope when it passes all seven rules below. `oam.explain(ids)` tells you, paper by paper, which rules it failed; see [Querying](querying.md#which-papers-are-scored).
 
-## The default criteria
+The scope is fixed when the data is built. The published download uses the rules below. To change them, you rebuild the data: see [Change the scope](#change-the-scope).
 
-Elimination counts are from the 2026-09-23 snapshot, 476,196,327 works. They overlap, so
-they do not sum: most rejected works fail several criteria at once. 62,928,576 works
-(13.21%) survive all seven.
+## The seven rules
 
-### `is_core_or_proceedings` — removes 369,158,255 (77.5%)
+On the OpenAlex snapshot of 2026-09-23, 62,928,576 of 476,196,327 works pass all seven rules: 13.2%. The counts below are the works each rule removes. Most removed works fail several rules, so the counts do not add up.
+
+| Rule | Keeps | Removes |
+|---|---|---|
+| `is_core_or_proceedings` | Papers in a core journal or a conference proceedings | 369,158,255 (77.5%) |
+| `has_referenced_works` | Papers with a reference list | 351,985,465 (73.9%) |
+| `has_authorship` | Papers with at least one institutional affiliation | 299,435,006 (62.9%) |
+| `is_english` | Papers in English | 149,099,672 (31.3%) |
+| `has_subfield` | Papers with an OpenAlex subfield | 98,022,660 (20.6%) |
+| `is_not_paratext` | Papers that are not editorials, errata or tables of contents | 6,680,039 (1.4%) |
+| `is_not_retracted` | Papers that are not retracted | 136,894 (0.0%) |
+
+### `is_core_or_proceedings`
 
 ```sql
 COALESCE(primary_location.source.is_core, FALSE)
 OR COALESCE(primary_location.raw_type = 'proceedings-article', FALSE)
 ```
 
-Restricts the corpus to peer-reviewed venues: journals OpenAlex marks as core, plus
-conference proceedings. This is by far the most consequential criterion, and it is what
-excludes preprints, datasets, book chapters, dissertations and grey literature.
+Keeps peer-reviewed venues: the journals OpenAlex marks as core, plus conference proceedings. This rule removes the most works. It is what excludes preprints, datasets, book chapters, theses and grey literature.
 
-There is no `type_crossref` column in the Parquet snapshot; the Crossref type string
-lives in `primary_location.raw_type`, which is where `'proceedings-article'` is read from.
+The conference test reads the Crossref type from `primary_location.raw_type`; the snapshot has no `type_crossref` column.
 
-### `has_referenced_works` — removes 351,985,465 (73.9%)
+### `has_referenced_works`
 
 ```sql
 COALESCE(len(referenced_works), 0) > 0
 ```
 
-A work with no outgoing references is almost never a research article with usable
-metadata, and it cannot contribute to anyone else's citation count. Dropping these is
-also what keeps `edges` at 2.2B rows rather than several times that.
+A work with no reference list is almost never a research article with usable metadata, and it cannot cite anyone. Removing these also keeps the citation table at 2.2 billion rows instead of several times that.
 
-### `has_authorship` — removes 299,435,006 (62.9%)
+### `has_authorship`
 
 ```sql
 COALESCE(institutions_distinct_count, 0) > 0
 ```
 
-At least one authorship must carry an institutional affiliation. `institutions_distinct_count`
-equals `COUNT(DISTINCT authorships[].institutions[].id)`, so it doubles as the
-fractional-counting denominator — which is why the build never has to read the large
-`authorships` column at all.
+At least one author must have an institutional affiliation. The same number of institutions is what fractional counting divides by.
 
-### `is_english` — removes 149,099,672 (31.3%)
+### `is_english`
 
 ```sql
 lower(COALESCE(language, '')) = 'en'
 ```
 
-English-language works only. This is the criterion most often questioned, and the most
-reasonable one to drop if your population is not anglophone. Note that OpenAlex infers
-`language`, so it is not perfectly reliable either way.
+English-language papers only. This is the rule most worth reconsidering if the papers you study are often not in English. OpenAlex infers the language, so it is not perfectly reliable either way.
 
-### `has_subfield` — removes 98,022,660 (20.6%)
+### `has_subfield`
 
 ```sql
 TRY_CAST(str_split(primary_topic.subfield.id, '/')[-1] AS INTEGER) IS NOT NULL
 ```
 
-Subfield is one of the three bin dimensions, so a work without one cannot be normalised
-against a peer group. This criterion must test the **parsed** subfield, not just
-`primary_topic.subfield.id IS NOT NULL`: a work whose id failed to parse would otherwise
-enter the population carrying a NULL bin dimension.
+The subfield defines the bin a paper is compared with, so a paper without one cannot be scored. The rule tests the parsed number rather than only the presence of an id, so a malformed id cannot enter with an empty bin.
 
-### `is_not_paratext` — removes 6,680,039 (1.4%)
+### `is_not_paratext`
 
 ```sql
 NOT COALESCE(is_paratext, FALSE)
 ```
 
-Editorials, errata, tables of contents and other front matter, as flagged by OpenAlex.
+Removes editorials, errata, tables of contents and other front matter, as flagged by OpenAlex.
 
-### `is_not_retracted` — removes 136,894 (0.0%)
+### `is_not_retracted`
 
 ```sql
 NOT COALESCE(is_retracted, FALSE)
 ```
 
-Retracted works, as flagged by OpenAlex. Almost free in volume terms, and kept for
-defensibility rather than effect.
+Removes retracted papers, as flagged by OpenAlex. It removes very few works; it is there so no score rests on a retracted paper.
 
 ## What is not configurable
 
-The three **bin dimensions** are fixed, because they are the metric definition rather
-than a filter: subfield, publication year, and journal-versus-conference. They are derived
-for every work whether or not you keep the criterion built on the same field, so removing
-`has_subfield` from the scope does not remove `subfield` from the data.
+**The bin.** A paper is always compared by subfield, publication year and venue type (journal or conference). These three are the definition of the scores, not scope rules. Removing `has_subfield` from the scope would not remove the subfield from the comparison.
 
-**xpack records** are excluded from the population by a separate switch, not by a
-criterion. The 2025-11-12 "walden" release folded them into `works`. On the 2026-09-23
-snapshot they are 148,440,389 works, 31.2% of the corpus. `oam.build(include_xpack=True)`
-puts them back.
+**xpack records.** Since the 2025-11-12 release, OpenAlex includes "xpack" records: 148,440,389 works on the 2026-09-23 snapshot, 31.2% of the corpus, and almost none of them pass the rules. They are left out of the comparison by a separate switch, not by a rule. `oam.build(include_xpack=True)` keeps them.
 
-## Changing the scope
+## Change the scope
 
-1. Edit `SCOPE` in [`../oam/config.py`](../oam/config.py). Each entry is a criterion name,
-   the SQL that decides it, and the label the profile funnel prints for the works it
-   rejects. Add, remove or rewrite freely.
-2. Rebuild: `oam.build(reset=True)` (about 1.5h).
+1. Edit `SCOPE` in [`oam/config.py`](../oam/config.py). Each entry is a rule name, the SQL that decides it, and a short label used in reports. Add, remove or rewrite entries.
+2. Rebuild the data from scratch with `oam.build(reset=True)`. It takes a few hours; see [Building the data](building.md).
 
-Nothing else needs touching. The build SQL, the `works_status` columns, the profile funnel
-and `oam.explain()` are all generated from the dict, and readers take the criteria from
-what the store recorded rather than from live config, so a half-finished edit cannot
-produce a confusing crash.
+Nothing else needs editing: the build, `oam.explain()` and `oam.profile()` all read the rules from that dictionary.
 
-Scope is a **build-time** decision, and the rebuild is not optional. `works_scope` and
-`edges` are both written already filtered, so a store cannot be re-scoped afterwards:
-loosening the scope needs rows that were never stored, and tightening it would need the
-citation universe recomputed to match. The build refuses to resume across a changed scope
-for exactly this reason, and tells you which criteria moved:
+The rebuild is required. The data stores only the papers and citations the old scope kept, so it cannot be widened or narrowed afterwards. If you edit the scope and call `oam.build()` without `reset=True`, it stops and lists what changed:
 
 ```
 ✗ Scope changed since the store was built:
     - is_english  removed
   Every table was filtered by the old definition, so topping up would blend the two.
-  Rebuild from scratch:  oam.build(reset=True)    (~1.5h)
+  Rebuild from scratch:  oam.build(reset=True)    (re-reads 67 GiB)
 ```
 
-### Writing a criterion
+After the rebuild, `oam.profile()` shows how many papers each rule removes, and `oam.check()` confirms the data is consistent. Compare the in-scope total with 62,928,576 to see what your change did.
 
-The SQL is evaluated against one row of the OpenAlex works Parquet, so any column in
-[`openalex-works-schema.txt`](openalex-works-schema.txt) is available, nested paths
-included. Nothing has to declare which columns are read — DuckDB works that out from the
-SQL and fetches only those byte ranges.
+### Writing a rule
 
-Two things worth knowing:
+A rule is SQL evaluated on one row of the OpenAlex works data. Any column listed in [`openalex-works-schema.txt`](openalex-works-schema.txt) can be used, including nested fields.
 
-- **Keep it narrow.** The build reads about 22% of each source file, and 14.9 of those
-  points are the single `authorships` column the resolve warehouse needs — DuckDB
-  cannot prune leaves inside a `LIST(STRUCT)`, so one field of it costs all of it.
-  `authorships` is therefore already paid for and free to test against, but a criterion
-  touching `abstract_inverted_index` (37.8% of the snapshot) would roughly triple the
-  build again.
-- **Handle NULLs.** Most snapshot columns are nullable and SQL `NULL` is not `FALSE`, so
-  wrap tests in `COALESCE` the way the defaults do. A criterion that returns NULL makes
-  `in_scope` NULL, and the work silently leaves the population.
-
-After a rebuild, `oam.profile()` shows the new funnel and `oam.check()` confirms the layers
-are still self-consistent. Compare the in-scope total against 62,928,576 to see what your
-change actually did.
+- **Prefer small columns.** The build downloads only the columns the rules and tables use. It already reads `authorships`, so a rule on authorship data is free. A rule on a large column such as `abstract_inverted_index`, 37.8% of the snapshot, would roughly triple the download.
+- **Handle missing values.** Most columns can be empty, and in SQL an empty value is neither true nor false. Wrap tests in `COALESCE(..., FALSE)` as the default rules do. A rule that returns an empty value drops the paper without saying so.

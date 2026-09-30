@@ -11,8 +11,8 @@ yourself, which is also how a different scope is published, is ``oam.build()``.
 
 Once the data is in place nothing here touches the network.
 
-See README.md. docs/use/README.md is the query guide, docs/build/README.md is
-for building and publishing a data release.
+See README.md. docs/metrics.md explains the scores, docs/querying.md is the
+query guide, and docs/building.md covers building and publishing a data release.
 """
 
 import json
