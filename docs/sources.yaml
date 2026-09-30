@@ -1,0 +1,72 @@
+# Data sources
+#
+# The bulk OpenAlex works data is never stored locally. It is streamed from S3 with
+# column projection by build step 1 (oam/store.py), which reads the manifest below to
+# know which part files to process. Only the manifests, the licence and a schema
+# reference are kept.
+#
+# Build step 3 (oam/resolve_store.py) additionally reads four of the small entity
+# snapshots — institutions, sources, funders, subfields — to name the ids its fact
+# tables store. They come from the same release as the works, which is why the
+# combined manifest is cached alongside the works one and its date is checked against
+# the store before the dimension tables are built.
+
+- file: ../data/snapshot/works_manifest.json
+  origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
+  url: "s3://openalex/data/parquet/works/manifest.json"
+  accessed: 2026-09-10
+  description: "Per-file manifest of the works Parquet snapshot: 2,446 part files across 482 updated_date partitions, 510,372,821 works, 724,970,323,127 bytes. Manifest date 2026-06-26. Each entry carries the S3 url plus record_count and content_length, used to drive and verify the build."
+  format: JSON
+  encoding: utf-8
+  confidential: false
+  notes: "Cached by oam/store.py and refetched only with oam.build(refresh_manifest=True), because a new quarterly snapshot invalidates an existing store. The premium daily bucket (s3://openalex-snapshots) was tested on 2026-09-10 and rejected the project API key with HTTP 403 'Plan upgrade required', so the free quarterly public snapshot is the source."
+
+- file: openalex-parquet-manifest.json
+  origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
+  url: "s3://openalex/data/parquet/manifest.json"
+  accessed: 2026-09-10
+  description: "Combined manifest covering all entity types in the Parquet snapshot (works, authors, institutions, sources, topics, subfields, ...), with per-entity totals."
+  format: JSON
+  encoding: utf-8
+  confidential: false
+  notes: "Kept for provenance. The working copy is ../data/snapshot/entities_manifest.json, fetched and cached by oam/resolve_store.py."
+
+- file: ../data/snapshot/entities_manifest.json
+  origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
+  url: "s3://openalex/data/parquet/manifest.json"
+  accessed: 2026-09-15
+  description: "Per-file manifest for every entity type. Build step 3 reads the file lists for four of them to build its dimension tables: institutions (127,784 records, 137 files, 95.6 MB), sources (283,287 / 120 / 170.3 MB), funders (45,640 / 120 / 11.9 MB) and subfields (252 / 1 / 174 KB). Manifest date 2026-06-26."
+  format: JSON
+  encoding: utf-8
+  confidential: false
+  notes: "Cached by oam/resolve_store.py and refetched only with oam.build(steps='resolve', refresh_manifest=True). Step 3 refuses to build the dimension tables if its date does not match the release the store was built from, so names and works cannot come from different quarters. The subfields entity is what supplies the field and domain hierarchy, so no API call is needed for it."
+
+- file: openalex-works-schema.txt
+  origin: "Generated locally with DuckDB from a remote works part file"
+  url: "s3://openalex/data/parquet/works/updated_date=2022-07-31/part_0000.parquet"
+  accessed: 2026-09-10
+  description: "Logical schema of the works Parquet (49 top-level columns) plus a findings section documenting the columns OAM reads: type_crossref no longer exists and is replaced by primary_location.raw_type, institutions_distinct_count equals the distinct-institution count from authorships, the top-level institutions column is empty in the snapshot, and DuckDB pushes struct projection down to HTTP range requests while it does not push down LIST(STRUCT) projection whereas PyArrow does — measured byte-for-byte, which is what sets the ~10% projection and is why step 1 reads with PyArrow and computes with DuckDB."
+  format: TXT
+  encoding: utf-8
+  confidential: false
+  notes: "Derived documentation, not source data. Regenerate if the snapshot schema changes."
+
+- file: openalex-RELEASE_NOTES.txt
+  origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
+  url: "s3://openalex/RELEASE_NOTES.txt"
+  accessed: 2026-09-10
+  description: "OpenAlex release notes describing snapshot changes over time."
+  format: TXT
+  encoding: utf-8
+  confidential: false
+  notes: "Provenance record: documents schema and content changes between releases, including the 2025-11-12 'walden' release that folded xpack records into works."
+
+- file: openalex-LICENSE.txt
+  origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
+  url: "s3://openalex/LICENSE.txt"
+  accessed: 2026-09-10
+  description: "Licence for the OpenAlex data (CC0)."
+  format: TXT
+  encoding: utf-8
+  confidential: false
+  notes: "Relevant for the planned open-source publication of OAM."

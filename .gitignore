@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Everything the build or a download produces. Never versioned.
+# Point OAM_DATA_DIR elsewhere to keep it on another disk.
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+
+.DS_Store
+.idea/

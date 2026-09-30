@@ -1,0 +1,259 @@
+# OpenAlex `works` Parquet - schema reference for OAM
+#
+# Source file inspected : s3://openalex/data/parquet/works/updated_date=2022-07-31/part_0000.parquet
+# Snapshot baseline     : manifest date 2026-06-26 (free public quarterly release)
+# Snapshot totals       : 510,372,821 works | 724,970,323,127 bytes | 2,446 part files | 482 partitions
+# Top-level columns     : 49
+#
+# ============================================================================
+# COLUMNS OAM READS (verified present, 2026-09-10; resolve columns added 2026-09-15)
+# ============================================================================
+# Scope, bins and citations:
+#   id                                 VARCHAR   'https://openalex.org/W2741809807' -> int64 via id[23:]
+#   publication_year                   INTEGER
+#   language                           VARCHAR   scope: == 'en'
+#   type                               VARCHAR   modern work type (NOT scope-defining); resolve: work_type
+#   is_retracted                       BOOLEAN   scope: must be false
+#   is_paratext                        BOOLEAN   scope: must be false
+#   primary_location.source.is_core    BOOLEAN   scope: core journal branch
+#   primary_location.raw_type          VARCHAR   scope: == 'proceedings-article' -> conference branch
+#   primary_topic.subfield.id          VARCHAR   'https://openalex.org/subfields/1602' -> int
+#   institutions_distinct_count        INTEGER   n_institutions for fractional counting; >0 => has authorship
+#   referenced_works                   VARCHAR[] outgoing citations -> edges
+#
+# The resolve warehouse (build step 3). All of these are cheap except authorships,
+# which costs 14.9% of every file on its own -- see finding 2:
+#   doi                                VARCHAR   -> work_doi, stored bare and lowercased
+#   primary_location.source.id         VARCHAR   -> works_attrs.source_id
+#   open_access.oa_status              VARCHAR   -> works_attrs.oa_status (closed|green|...|diamond)
+#   open_access.is_oa                  BOOLEAN   -> works_attrs.is_oa
+#   funders[].id                       VARCHAR   -> work_funders
+#   authorships[].author.id            VARCHAR   -> work_authors
+#   authorships[].author.orcid         VARCHAR   -> author_orcid, stored bare and lowercased
+#   authorships[].is_corresponding     BOOLEAN   -> the is_corresponding flags
+#   authorships[].institutions[].id    VARCHAR   -> work_institutions.is_direct
+#   authorships[].institutions[].lineage VARCHAR[] -> work_institutions, lineage-expanded
+#
+# ============================================================================
+# FINDINGS THAT CHANGE THE OLD IMPLEMENTATION
+# ============================================================================
+#
+# 1. `type_crossref` NO LONGER EXISTS (neither in the snapshot nor the API).
+#    The 2025 pipeline defined conference papers as `type_crossref == 'proceedings-article'`.
+#    The crossref raw string now lives in `primary_location.raw_type`, verified by example:
+#      journal article  -> raw_type = 'journal-article'
+#      conference paper -> raw_type = 'proceedings-article'
+#    => OAM uses `primary_location.raw_type == 'proceedings-article'` as the faithful equivalent.
+#    The modern `type` column ('conference-paper', 16.2M works) is a *different* population
+#    (some conference-paper works have raw_type 'book-chapter'), so `type` is stored alongside
+#    but does not define scope. Storing it avoids a full re-scan if the definition is revisited.
+#
+# 2. DUCKDB PUSHES DOWN STRUCT PROJECTION BUT NOT LIST(STRUCT); PYARROW DOES BOTH.
+#    This is the single most expensive fact about the snapshot, and it is easy to get wrong
+#    because the two cases look identical in SQL. It is why oam/arrow.py exists.
+#
+#    Measured exactly on updated_date=2026-02-01/part_0001.parquet (40.0 MiB), by serving the
+#    file over a local HTTP server that counts the bytes in every range request:
+#
+#      SELECT publication_year                                           0.08 MiB   0.21%
+#      the scope + bins + edges projection (11 leaf columns)             2.25 MiB   5.62%
+#      + doi, source.id, open_access.*, funders[], corresponding ids     0.47 MiB   1.17%
+#      list_transform(authorships, a -> a.author.id)                     5.94 MiB  14.85%
+#      sum(len(authorships::VARCHAR))            <- the whole column     5.94 MiB  14.85%
+#
+#    Asking DuckDB for one leaf of `authorships` costs exactly what asking for all of it
+#    costs: it prunes leaves inside a STRUCT (primary_location.source.is_core reads one
+#    boolean) but not inside a LIST(STRUCT). The parquet footer says the `authorships` leaves
+#    OAM wants are 0.29-0.96% each, so the pushdown that does not happen is worth ~13 points.
+#
+#    PyArrow does push it down, which is why step 1 reads the files with PyArrow and computes
+#    over the resulting Arrow table with DuckDB. Verified on updated_date=2025-11-06/
+#    part_0344.parquet (171 MiB, 145,202 records): all nine output tables identical as
+#    multisets between the two readers, 40.9s against 22.9s wall clock.
+#
+#    The projection is now 9.9% of the snapshot, size-weighted over a 24-file sample spread
+#    across the size distribution (range 2.3-11.6% per file; small files sit higher because
+#    the footer is a fixed cost). A full pass transfers ~67 GiB of the 675 GiB rather than
+#    the ~145 GiB the DuckDB reader needed.
+#
+#    TWO SHARP EDGES. PyArrow's *named* selection has DuckDB's blind spot and fails silently:
+#    pq.ParquetFile.read(columns=['authorships.author.id']) returns a table with no
+#    authorships column at all rather than raising. Leaves under a repeated group have to be
+#    selected by physical index, which is what oam/arrow.py works out from the footer. And
+#    since the column is read either way, every field in it is free: authors, ORCIDs,
+#    institution ids, lineage and the corresponding-author flags all come out of that one
+#    read, and `authorships[].is_corresponding` is preferred over the top-level
+#    `corresponding_author_ids` array it is derived from (verified identical on a sample
+#    file) because it costs nothing extra and is the per-authorship source of truth.
+#
+# 3. `institutions_distinct_count` == COUNT(DISTINCT authorships[].institutions[].id)
+#    Verified exactly on all 86,548 records of updated_date=2025-11-12/part_0001.parquet.
+#    => Kept as the fractional-counting denominator and as the `has_authorship` criterion. It
+#       used to be the reason OAM could avoid `authorships` entirely; the resolve warehouse
+#       needs author and institution ids, so that no longer holds, but the column stays
+#       because it is already parsed and is what works_scope stores.
+#
+# 4. The top-level `institutions` and `institutions_distinct_count` are not interchangeable
+#    sources for institution ids: the top-level `institutions` STRUCT[] column is EMPTY in the
+#    snapshot (0 of 25,353 works populated on updated_date=2026-02-01/part_0001.parquet,
+#    0.00 MiB in the footer), despite being present in the schema.
+#    => Institutions and their lineage must come from authorships[].institutions[].
+#
+# 5. A full-snapshot scan transfers roughly 67 GiB of the 675 GiB, not 725 GB, so there is
+#    still no reason to mirror it locally. `abstract_inverted_index` alone is 37.8% of the
+#    snapshot and is never read.
+#
+# 6. `abstract_inverted_index` is 37.8% of the snapshot and is never read (titles/abstracts
+#    are out of scope for OAM by design).
+#
+# ============================================================================
+# FULL LOGICAL SCHEMA
+# ============================================================================
+
+id
+    VARCHAR
+
+doi
+    VARCHAR
+
+title
+    VARCHAR
+
+display_name
+    VARCHAR
+
+ids
+    MAP(VARCHAR, VARCHAR)
+
+indexed_in
+    VARCHAR[]
+
+publication_date
+    DATE
+
+publication_year
+    INTEGER
+
+language
+    VARCHAR
+
+type
+    VARCHAR
+
+authorships
+    STRUCT(author STRUCT(display_name VARCHAR, id VARCHAR, orcid VARCHAR), author_position VARCHAR, affiliations STRUCT(institution_ids VARCHAR[], raw_affiliation_string VARCHAR)[], countries VARCHAR[], raw_author_name VARCHAR, raw_orcid VARCHAR, is_corresponding BOOLEAN, raw_affiliation_strings VARCHAR[], institutions STRUCT(country_code VARCHAR, display_name VARCHAR, id VARCHAR, lineage VARCHAR[], ror VARCHAR, "type" VARCHAR)[])[]
+
+authors_count
+    INTEGER
+
+corresponding_author_ids
+    VARCHAR[]
+
+corresponding_institution_ids
+    VARCHAR[]
+
+primary_topic
+    STRUCT(id VARCHAR, display_name VARCHAR, score FLOAT, subfield STRUCT(id VARCHAR, display_name VARCHAR), field STRUCT(id VARCHAR, display_name VARCHAR), "domain" STRUCT(id VARCHAR, display_name VARCHAR))
+
+topics
+    STRUCT(id VARCHAR, display_name VARCHAR, score FLOAT, subfield STRUCT(id VARCHAR, display_name VARCHAR), field STRUCT(id VARCHAR, display_name VARCHAR), "domain" STRUCT(id VARCHAR, display_name VARCHAR))[]
+
+keywords
+    STRUCT(id VARCHAR, display_name VARCHAR, score FLOAT)[]
+
+concepts
+    STRUCT(id VARCHAR, wikidata VARCHAR, display_name VARCHAR, "level" INTEGER, score FLOAT)[]
+
+locations
+    STRUCT(id VARCHAR, "source" STRUCT(id VARCHAR, display_name VARCHAR, issn_l VARCHAR, issn VARCHAR[], is_oa BOOLEAN, is_in_doaj BOOLEAN, is_core BOOLEAN, host_organization VARCHAR, host_organization_name VARCHAR, host_organization_lineage VARCHAR[], host_organization_lineage_names VARCHAR[], "type" VARCHAR), is_oa BOOLEAN, is_published BOOLEAN, landing_page_url VARCHAR, pdf_url VARCHAR, raw_source_name VARCHAR, raw_type VARCHAR, provenance VARCHAR, license VARCHAR, license_id VARCHAR, "version" VARCHAR, is_accepted BOOLEAN)[]
+
+locations_count
+    INTEGER
+
+primary_location
+    STRUCT(id VARCHAR, "source" STRUCT(id VARCHAR, display_name VARCHAR, issn_l VARCHAR, issn VARCHAR[], is_oa BOOLEAN, is_in_doaj BOOLEAN, is_core BOOLEAN, host_organization VARCHAR, host_organization_name VARCHAR, host_organization_lineage VARCHAR[], host_organization_lineage_names VARCHAR[], "type" VARCHAR), is_oa BOOLEAN, is_published BOOLEAN, landing_page_url VARCHAR, pdf_url VARCHAR, raw_source_name VARCHAR, raw_type VARCHAR, provenance VARCHAR, license VARCHAR, license_id VARCHAR, "version" VARCHAR, is_accepted BOOLEAN)
+
+best_oa_location
+    STRUCT(id VARCHAR, "source" STRUCT(id VARCHAR, display_name VARCHAR, issn_l VARCHAR, issn VARCHAR[], is_oa BOOLEAN, is_in_doaj BOOLEAN, is_core BOOLEAN, host_organization VARCHAR, host_organization_name VARCHAR, host_organization_lineage VARCHAR[], host_organization_lineage_names VARCHAR[], "type" VARCHAR), is_oa BOOLEAN, is_published BOOLEAN, landing_page_url VARCHAR, pdf_url VARCHAR, raw_source_name VARCHAR, raw_type VARCHAR, provenance VARCHAR, license VARCHAR, license_id VARCHAR, "version" VARCHAR, is_accepted BOOLEAN)
+
+sustainable_development_goals
+    STRUCT(id VARCHAR, display_name VARCHAR, score DOUBLE)[]
+
+awards
+    STRUCT(id VARCHAR, display_name VARCHAR, funder_award_id VARCHAR, funder_id VARCHAR, funder_display_name VARCHAR)[]
+
+funders
+    STRUCT(id VARCHAR, display_name VARCHAR, ror VARCHAR)[]
+
+institutions
+    STRUCT(id VARCHAR, display_name VARCHAR, ror VARCHAR, country_code VARCHAR, "type" VARCHAR, lineage VARCHAR[])[]
+
+countries_distinct_count
+    INTEGER
+
+institutions_distinct_count
+    INTEGER
+
+open_access
+    STRUCT(is_oa BOOLEAN, oa_status VARCHAR, any_repository_has_fulltext BOOLEAN, oa_url VARCHAR)
+
+is_paratext
+    BOOLEAN
+
+is_retracted
+    BOOLEAN
+
+is_xpac
+    BOOLEAN
+
+biblio
+    STRUCT(volume VARCHAR, issue VARCHAR, first_page VARCHAR, last_page VARCHAR)
+
+referenced_works
+    VARCHAR[]
+
+referenced_works_count
+    INTEGER
+
+related_works
+    VARCHAR[]
+
+abstract_inverted_index
+    VARCHAR
+
+cited_by_count
+    INTEGER
+
+counts_by_year
+    STRUCT("year" INTEGER, cited_by_count INTEGER)[]
+
+apc_list
+    STRUCT("value" INTEGER, currency VARCHAR, value_usd INTEGER)
+
+apc_paid
+    STRUCT("value" DOUBLE, currency VARCHAR, value_usd DOUBLE)
+
+fwci
+    DOUBLE
+
+citation_normalized_percentile
+    STRUCT("value" DOUBLE, is_in_top_1_percent BOOLEAN, is_in_top_10_percent BOOLEAN)
+
+cited_by_percentile_year
+    STRUCT(min INTEGER, max INTEGER)
+
+mesh
+    STRUCT(descriptor_ui VARCHAR, descriptor_name VARCHAR, qualifier_ui VARCHAR, qualifier_name VARCHAR, is_major_topic BOOLEAN)[]
+
+has_content
+    STRUCT(pdf BOOLEAN, grobid_xml BOOLEAN)
+
+has_fulltext
+    BOOLEAN
+
+created_date
+    TIMESTAMP WITH TIME ZONE
+
+updated_date
+    DATE
+

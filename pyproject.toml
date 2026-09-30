@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openalex-metrics"
+version = "0.1.0"
+description = "Citation-impact metrics for any set of OpenAlex works, normalised against a publication universe you choose"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "duckdb>=1.2",
+    # Reads the snapshot in build step 1. Needs the S3 filesystem, and needs to be
+    # new enough for the zero-copy hand-over of an Arrow table to DuckDB.
+    "pyarrow>=14",
+    "pandas>=2.0",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+]
+
+# Homepage and repository URLs go here once the project is on GitHub.
+
+[tool.setuptools]
+packages = ["oam"]
