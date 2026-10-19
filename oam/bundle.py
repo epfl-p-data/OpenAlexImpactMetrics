@@ -1,13 +1,9 @@
 """Share a finished build, or install someone else's, without rebuilding it.
 
-Two archives, so a Zenodo record stays well under its file and size limits:
-
-  lite       work_metrics, works_status and the dimension tables. Enough to
-             explain and score a list of OpenAlex ids. About the size of those
-             tables, a few gigabytes.
-  resolve    the lookup tables resolve() reads. Together with lite this is the
-             full query bundle; the build-only tables (edges, citation_counts,
-             works_scope) are never shipped.
+One archive holds every table a query reads: the scores, the scope status,
+the dimension tables and the lookup tables resolve() uses. The build-only
+tables (edges, citation_counts, works_scope) stay behind; a download cannot
+rebuild the data, and nothing queries them.
 
 export() compacts a table that is still thousands of part files into one
 Parquet file sorted by work_id, which is how get_metrics and explain look
@@ -15,9 +11,9 @@ rows up. A table that is already one file is copied unchanged: the resolve
 tables are sorted on their lookup key, and re-sorting them would make every
 query read the whole file.
 
-download() installs an archive into the data directory. With no source it
+download() installs that archive into the data directory. With no source it
 uses the Zenodo record in config.ZENODO_RECORD. source may also be a local
-.tar, a directory of them, or an https URL.
+.tar, a directory containing one, or an https URL.
 """
 
 import hashlib
@@ -33,15 +29,9 @@ import requests
 from . import config
 from .duck import connect, copy_parquet, human_bytes, table_size
 
-# Scoring and naming. works_status is what explain() reads; the dimension
-# tables are small enough that naming an id should not require the full bundle.
-LITE_TABLES = ("work_metrics", "works_status") + config.DIM_TABLES
-RESOLVE_EXPORT_TABLES = config.RESOLVE_TABLES
-
-_TIERS = {
-    "lite": LITE_TABLES,
-    "resolve": RESOLVE_EXPORT_TABLES,
-}
+# Everything a query reads. works_status is what explain() reads.
+BUNDLE_TABLES = (("work_metrics", "works_status") + config.DIM_TABLES
+                 + config.RESOLVE_TABLES)
 
 
 def installed():
@@ -50,12 +40,10 @@ def installed():
         return None
     meta = json.loads(config.BUNDLE_PATH.read_text())
     return {
-        "tier": meta.get("tier"),
         "snapshot": meta.get("snapshot"),
         "format": meta.get("format"),
         "oam_version": meta.get("oam_version"),
         "scope_hash": meta.get("scope_hash"),
-        "installed": meta.get("installed") or ([meta["tier"]] if meta.get("tier") else []),
         "files": meta.get("files") or {},
     }
 
@@ -78,23 +66,17 @@ def rows_for(table):
 # Export
 # ---------------------------------------------------------------------------
 
-def export(path, tier="lite"):
-    """Write `oam-<snapshot>-<tier>.tar` into the directory `path`.
-
-    tier "lite" is the scoring bundle. tier "resolve" is the lookup bundle.
-    Publish both; download("full") installs the pair. Returns the tar path.
-    """
-    if tier not in _TIERS:
-        raise ValueError(f"tier must be 'lite' or 'resolve', not {tier!r}")
+def export(path):
+    """Write `oam-<snapshot>.tar` into the directory `path`. Returns the tar path."""
     if not config.STORE_STATE_PATH.is_file():
         raise RuntimeError(
             f"no snapshot record at {config.STORE_STATE_PATH}. "
             f"export() reads a finished build; run oam.build() first."
         )
-    missing = [t for t in _TIERS[tier] if table_size(config.table_dir(t)) == 0]
+    missing = [t for t in BUNDLE_TABLES if table_size(config.table_dir(t)) == 0]
     if missing:
         raise RuntimeError(
-            f"export({tier!r}) needs {', '.join(missing)} built. Run oam.build() first."
+            f"export() needs {', '.join(missing)} built. Run oam.build() first."
         )
     license_src = config.REPO_DIR / "docs" / "openalex-LICENSE.txt"
     if not license_src.is_file():
@@ -103,20 +85,20 @@ def export(path, tier="lite"):
     snapshot = json.loads(config.STORE_STATE_PATH.read_text())
     out_dir = Path(path).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"oam-{snapshot.get('date')}-{tier}.tar"
-    staging = out_dir / f".oam-export-{tier}-{os.getpid()}"
+    dest = out_dir / f"oam-{snapshot.get('date')}.tar"
+    staging = out_dir / f".oam-export-{os.getpid()}"
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir()
 
-    print(f"▶ Exporting {tier} from {config.DATA_DIR}")
+    print(f"▶ Exporting {config.DATA_DIR}")
     print(f"  snapshot : {snapshot.get('date')}")
     print(f"  archive  : {dest}")
     try:
         files = {}
         written = []
         con = connect(staging / "_tmp")
-        for table in _TIERS[tier]:
+        for table in BUNDLE_TABLES:
             rel = (config.table_dir(table).relative_to(config.DATA_DIR)
                    / "part-0.parquet").as_posix()
             target = staging / rel
@@ -126,13 +108,12 @@ def export(path, tier="lite"):
             written.append((target, rel))
             print(f"  ✓ {table:<20} {rows:>15,} rows  {human_bytes(files[rel]['bytes'])}")
 
-        if tier == "lite":
-            rel = config.STORE_STATE_PATH.relative_to(config.DATA_DIR).as_posix()
-            target = staging / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(config.STORE_STATE_PATH, target)
-            files[rel] = _file_record(target, None)
-            written.append((target, rel))
+        rel = config.STORE_STATE_PATH.relative_to(config.DATA_DIR).as_posix()
+        target = staging / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(config.STORE_STATE_PATH, target)
+        files[rel] = _file_record(target, None)
+        written.append((target, rel))
 
         rel = "LICENSE-OpenAlex.txt"
         target = staging / rel
@@ -147,7 +128,6 @@ def export(path, tier="lite"):
             "record_count": snapshot.get("record_count"),
             "scope": snapshot.get("scope"),
             "scope_hash": config.scope_hash(snapshot.get("scope")),
-            "tier": tier,
             "files": files,
         }
         bundle_path = staging / "bundle.json"
@@ -218,81 +198,47 @@ def _version():
 # Download
 # ---------------------------------------------------------------------------
 
-def download(tier="lite", source=None, replace=False):
-    """Install a published bundle into the data directory.
+def download(source=None, replace=False):
+    """Install the published data into the data directory.
 
-    tier    "lite" scores a list of ids. "full" adds resolve(). "resolve"
-            installs only the lookup archive, which is only useful on top of lite.
     source  None uses config.ZENODO_RECORD. Otherwise a .tar path, a directory
-            holding the archives, or an https URL of one archive.
+            containing one, or an https URL.
     replace wipe a data directory built from a different snapshot first.
             Refused without this, so a download cannot mix two releases.
     """
-    needed = _needed(tier)
     # An explicit file or URL can be a different snapshot, so it is never
     # waved through on the strength of whatever is already installed. Only the
     # Zenodo default, which is the one release this version knows, can be.
-    if source is None and not replace and _satisfied(tier):
-        print(f"✓ {tier} data already installed at {config.DATA_DIR}")
-        return installed()
-    if source is None and not replace and tier == "full" and _satisfied("lite"):
-        needed = ["resolve"]
-
-    staged = _locate(needed, source)
-    metas = []
-    for name, src in staged:
-        path = _materialize(src, name)
-        meta = _read_tar_meta(path)
-        _check_format(meta, path)
-        if meta.get("tier") != name:
-            raise RuntimeError(
-                f"{path} is a {meta.get('tier')} archive, expected {name}."
-            )
-        metas.append((name, path, meta))
-    dates = {m["snapshot"] for _, _, m in metas}
-    if len(dates) != 1:
-        raise RuntimeError(
-            f"these archives are from different snapshots: {sorted(dates)}"
-        )
-    if not replace and all(_archive_already_present(meta) for _, _, meta in metas):
-        print(f"✓ {tier} data already installed at {config.DATA_DIR}")
+    if source is None and not replace and _satisfied():
+        print(f"✓ data already installed at {config.DATA_DIR}")
         return installed()
 
-    incoming = dates.pop()
+    src = _locate(source)
+    path = _materialize(src)
+    meta = _read_tar_meta(path)
+    _check_format(meta, path)
+    if not replace and _archive_already_present(meta):
+        print(f"✓ data already installed at {config.DATA_DIR}")
+        return installed()
+
+    incoming = meta.get("snapshot")
     existing = _existing_snapshot()
     if existing and existing != incoming and not replace:
         raise RuntimeError(
             f"{config.DATA_DIR} holds snapshot {existing}, and this bundle is "
             f"{incoming}. Pass replace=True to replace it."
         )
-    # Once, before the first archive lands. Wiping inside the loop would
-    # delete the lite tables while installing the resolve archive.
     if existing and existing != incoming:
         _wipe_outputs()
-    for name, path, meta in metas:
-        _install_one(path, meta)
-        print(f"✓ installed {name} (snapshot {incoming}) into {config.DATA_DIR}")
+    _install(path, meta)
+    print(f"✓ installed snapshot {incoming} into {config.DATA_DIR}")
     return installed()
 
 
-def _needed(tier):
-    if tier == "lite":
-        return ["lite"]
-    if tier == "resolve":
-        return ["resolve"]
-    if tier == "full":
-        return ["lite", "resolve"]
-    raise ValueError("tier must be 'lite', 'resolve' or 'full'")
-
-
-def _satisfied(tier):
-    """True when this tier's files are already present at the recorded sizes."""
+def _satisfied():
+    """True when the recorded files are already present at the recorded sizes."""
     info = installed()
-    if not info:
-        return False
-    have = set(info["installed"])
-    wanted = {"lite", "resolve"} if tier == "full" else {tier}
-    if not wanted <= have:
+    if not info or not info["files"]:
         return False
     for rel, spec in info["files"].items():
         path = config.DATA_DIR / rel
@@ -310,12 +256,12 @@ def _archive_already_present(meta):
     # treated as the bundle it no longer describes.
     if _existing_snapshot() != meta.get("snapshot"):
         return False
-    if meta.get("tier") not in set(info.get("installed") or []):
+    recorded = info.get("files") or {}
+    if set(recorded) != set(meta["files"]):
         return False
     for rel, spec in meta["files"].items():
-        recorded = (info.get("files") or {}).get(rel)
         path = config.DATA_DIR / rel
-        if not recorded or recorded.get("sha256") != spec.get("sha256"):
+        if recorded[rel].get("sha256") != spec.get("sha256"):
             return False
         if not path.is_file() or path.stat().st_size != spec.get("bytes"):
             return False
@@ -329,37 +275,26 @@ def _existing_snapshot():
     return info["snapshot"] if info else None
 
 
-def _locate(needed, source):
-    """(tier name, path-or-url) for each archive still to install."""
+def _locate(source):
+    """A local .tar path, or an https URL, for the one archive to install."""
     if source is None:
-        return [(name, _zenodo_url(name)) for name in needed]
+        return _zenodo_url()
 
     as_path = _as_path(source)
     if as_path is not None and as_path.is_dir():
-        found = []
-        for name in needed:
-            matches = sorted(as_path.glob(f"oam-*-{name}.tar"))
-            if len(matches) != 1:
-                raise RuntimeError(
-                    f"expected one oam-*-{name}.tar in {as_path}, found {len(matches)}"
-                )
-            found.append((name, matches[0]))
-        return found
-
-    if len(needed) != 1:
-        raise RuntimeError(
-            "download('full') needs both archives. Pass a directory that contains "
-            "them, or source=None to take them from Zenodo."
-        )
+        matches = sorted(as_path.glob("oam-*.tar"))
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"expected one oam-*.tar in {as_path}, found {len(matches)}"
+            )
+        return matches[0]
     if as_path is not None:
         if not as_path.is_file():
             raise RuntimeError(f"no such file: {as_path}")
-        return [(needed[0], as_path)]
+        return as_path
     if isinstance(source, str) and source.startswith(("http://", "https://")):
-        return [(needed[0], source)]
-    raise RuntimeError(
-        "source must be a .tar file, a directory of them, or an https URL"
-    )
+        return source
+    raise RuntimeError("source must be a .tar file, a directory containing one, or an https URL")
 
 
 def _as_path(source):
@@ -370,7 +305,7 @@ def _as_path(source):
     return None
 
 
-def _zenodo_url(tier_name):
+def _zenodo_url():
     record = config.ZENODO_RECORD
     if not record:
         raise RuntimeError(
@@ -379,11 +314,10 @@ def _zenodo_url(tier_name):
         )
     resp = requests.get(f"{config.ZENODO_API}{record}", timeout=60)
     resp.raise_for_status()
-    suffix = f"-{tier_name}.tar"
     matches = []
     for entry in resp.json().get("files") or []:
         key = entry.get("key") or entry.get("filename") or ""
-        if not str(key).endswith(suffix):
+        if not Path(str(key)).name.startswith("oam-") or not str(key).endswith(".tar"):
             continue
         links = entry.get("links") or {}
         url = links.get("self") or links.get("content")
@@ -391,21 +325,20 @@ def _zenodo_url(tier_name):
             matches.append(url)
     if len(matches) != 1:
         raise RuntimeError(
-            f"Zenodo record {record} does not have exactly one file ending in {suffix} "
+            f"Zenodo record {record} does not have exactly one oam-*.tar "
             f"({len(matches)} found)."
         )
     return matches[0]
 
 
-def _materialize(src, tier_name):
+def _materialize(src):
     """A local path, downloading an URL into the data directory's cache first.
 
-    The cache name is the tier, not the URL's last segment: Zenodo's download
-    links often both end in ``content`` and would overwrite each other.
+    The cache name is fixed: Zenodo's download link ends in ``content``.
     """
     if not isinstance(src, str) or not src.startswith(("http://", "https://")):
         return Path(src)
-    dest = config.DATA_DIR / "_downloads" / f"oam-{tier_name}.tar"
+    dest = config.DATA_DIR / "_downloads" / "oam.tar"
     _download_file(src, dest)
     return dest
 
@@ -475,7 +408,7 @@ def _check_format(meta, path):
         )
 
 
-def _install_one(path, meta):
+def _install(path, meta):
     staging = config.DATA_DIR / f"_incoming-{os.getpid()}"
     if staging.exists():
         shutil.rmtree(staging)
@@ -491,11 +424,10 @@ def _install_one(path, meta):
             dest = config.DATA_DIR / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src, dest)
-        _merge_bundle(meta)
+        _write_bundle(meta)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    # The downloaded tar has done its job. A file the caller pointed at is kept
-    # by _caller_files; this only removes the cache copy, which lives here.
+    # A file the caller pointed at is kept. This only removes the cache copy.
     cached = config.DATA_DIR / "_downloads" / Path(path).name
     if cached.resolve() == Path(path).resolve() and cached.exists():
         cached.unlink()
@@ -562,27 +494,5 @@ def _clear_replaced_tables(meta):
         shutil.rmtree(config.DATA_DIR / rel, ignore_errors=True)
 
 
-def _merge_bundle(meta):
-    current = {}
-    if config.BUNDLE_PATH.is_file():
-        current = json.loads(config.BUNDLE_PATH.read_text())
-    if current.get("snapshot") not in (None, meta.get("snapshot")):
-        current = {}
-    files = dict(current.get("files") or {})
-    files.update(meta["files"])
-    installed_tiers = set(current.get("installed") or [])
-    if current.get("tier") in ("lite", "resolve"):
-        installed_tiers.add(current["tier"])
-    installed_tiers.add(meta["tier"])
-    merged = {
-        "format": meta["format"],
-        "oam_version": meta.get("oam_version"),
-        "snapshot": meta.get("snapshot"),
-        "record_count": meta.get("record_count") or current.get("record_count"),
-        "scope": meta.get("scope") or current.get("scope"),
-        "scope_hash": meta.get("scope_hash") or current.get("scope_hash"),
-        "tier": "full" if {"lite", "resolve"} <= installed_tiers else meta["tier"],
-        "installed": sorted(installed_tiers),
-        "files": files,
-    }
-    config.BUNDLE_PATH.write_text(json.dumps(merged, indent=2) + "\n")
+def _write_bundle(meta):
+    config.BUNDLE_PATH.write_text(json.dumps(meta, indent=2) + "\n")

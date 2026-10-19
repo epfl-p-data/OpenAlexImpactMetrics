@@ -272,7 +272,7 @@ def report(deep=False, include_xpack=None):
     skipped = [item[0] for item in battery if not _present(item[4])]
     if not runnable:
         print(f"✗ nothing to check in {config.DATA_DIR}.")
-        print("  oam.download() installs the scoring tables; oam.build() builds everything.")
+        print("  oam.download() installs the data; oam.build() builds it from the snapshot.")
         return False
 
     ok = _render(_evaluate(runnable), " (deep)" if deep else "")

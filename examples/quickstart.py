@@ -1,9 +1,9 @@
 """End-to-end example: resolve an institution's works, then score them.
 
-Needs the full data. Once is enough:
+Needs the data. Once is enough:
 
     import oam
-    oam.download("full")          # or oam.build(), for a scope of your own
+    oam.download()                # or oam.build(), for a scope of your own
 
 Then:
 

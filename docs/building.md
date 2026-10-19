@@ -72,27 +72,24 @@ oam.build(reset=True, refresh_manifest=True)
 
 ## Publish a release
 
-From a finished build, write the two archives `oam.download()` installs:
+From a finished build, write the archive `oam.download()` installs:
 
 ```python
-oam.export("dist", tier="lite")       # dist/oam-<snapshot>-lite.tar, about 2.2 GB
-oam.export("dist", tier="resolve")    # dist/oam-<snapshot>-resolve.tar, about 10 GB
+oam.export("dist")    # dist/oam-<snapshot>.tar, about 12 GB
 ```
-
-`oam.download()` installs the lite archive. `oam.download("full")` installs both.
 
 Then:
 
-1. Upload both files to [Zenodo](https://zenodo.org) under the CC0 licence. For a new snapshot, add a new version to the existing record. Keep the file names `oam.export` wrote: `oam.download()` finds the files by their `-lite.tar` and `-resolve.tar` endings.
+1. Upload the file to [Zenodo](https://zenodo.org) under the CC0 licence. For a new snapshot, add a new version to the existing record. Keep the file name `oam.export` wrote: `oam.download()` finds the file whose name starts with `oam-` and ends with `.tar`.
 2. Set `ZENODO_RECORD` in [`oam/config.py`](../oam/config.py) to the id of the record. `oam.download()` fetches from that record.
 3. Publish the new version of the package.
 
-Each archive records its snapshot date, its scope and a checksum of every file. `oam.download()` checks all three. It refuses to mix two snapshots in one data directory unless called with `replace=True`.
+The archive records its snapshot date, its scope and a checksum of every file. `oam.download()` checks all three. It refuses to mix two snapshots in one data directory unless called with `replace=True`.
 
 To share a build without Zenodo, send the archive file itself. The recipient installs it with:
 
 ```python
-oam.download(source="oam-2026-09-23-lite.tar")
+oam.download(source="oam-2026-09-23.tar")
 ```
 
 ## Other settings

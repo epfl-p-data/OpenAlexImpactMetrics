@@ -46,21 +46,14 @@ def read_connection():
 
 
 def require_tables(tables, purpose):
-    """Raise if any table `purpose` reads is missing, naming how to get it.
-
-    A downloaded lite bundle has the scoring tables and not the resolve tables, so
-    the message points at oam.download() or oam.download('full') rather than at
-    DuckDB's "No files found".
-    """
+    """Raise if any table `purpose` reads is missing, naming how to get it."""
     missing = [t for t in tables if table_size(config.table_dir(t)) == 0]
     if not missing:
         return
-    lite = set(config.DIM_TABLES) | {"work_metrics", "works_status"}
-    hint = "oam.download()" if set(missing) <= lite else "oam.download('full')"
     listed = ", ".join(missing)
     raise RuntimeError(
         f"{purpose} needs {listed}, which is not in {config.DATA_DIR}. "
-        f"Get it with {hint}, or build it with oam.build()."
+        f"Get it with oam.download(), or build it with oam.build()."
     )
 
 

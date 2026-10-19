@@ -2,12 +2,12 @@
 
     import oam
 
-    oam.download()                                   # scoring data, a few GB
+    oam.download()
     oam.aggregate(ids, by="publication_year")       # MNCS, top 10%, top 1%
 
-`ids` is any list of OpenAlex work ids. Picking the works by institution, author
-or DOI needs the larger download: ``oam.download("full")``. Building the data
-yourself, which is also how a different scope is published, is ``oam.build()``.
+`ids` is any list of OpenAlex work ids, or the result of ``oam.resolve()``.
+Building the data yourself, which is also how a different scope is published,
+is ``oam.build()``.
 
 Once the data is in place nothing here touches the network.
 
@@ -118,7 +118,7 @@ def status():
     }
     print(f"data: {info['data_dir']}")
     if bundle:
-        print(f"bundle: {bundle['tier']}, snapshot {bundle['snapshot']}\n")
+        print(f"bundle: snapshot {bundle['snapshot']}\n")
     elif config.STORE_STATE_PATH.is_file():
         date = json.loads(config.STORE_STATE_PATH.read_text()).get("date")
         print(f"bundle: local build, snapshot {date}\n")

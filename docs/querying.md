@@ -2,17 +2,17 @@
 
 How to choose papers, check which ones are scored, and get the scores per paper or per group. For what the scores mean, see [How the scores work](metrics.md).
 
-## What each function needs
+## The functions
 
-| Function | Returns | Needs |
-|---|---|---|
-| `oam.aggregate(ids)` | One row of indicators per group | `oam.download()` |
-| `oam.get_metrics(ids)` | One row of scores per paper | `oam.download()` |
-| `oam.explain(ids)` | Whether each paper is in scope, and which rules it failed | `oam.download()` |
-| `oam.dimension(kind)` | Names behind ids, and ids behind names | `oam.download()` |
-| `oam.resolve(...)` | Paper ids matching a filter or a DOI list | `oam.download("full")` |
+All of them read the data from `oam.download()`. If it is not there, the function says so.
 
-If a function needs data you have not downloaded, it says which download to run.
+| Function | Returns |
+|---|---|
+| `oam.aggregate(ids)` | One row of indicators per group |
+| `oam.get_metrics(ids)` | One row of scores per paper |
+| `oam.explain(ids)` | Whether each paper is in scope, and which rules it failed |
+| `oam.dimension(kind)` | Names behind ids, and ids behind names |
+| `oam.resolve(...)` | Paper ids matching a filter or a DOI list |
 
 ## Choose the papers
 
@@ -33,11 +33,9 @@ oam.aggregate(ids)
 ids = oam.resolve(doi=["10.1038/nature12373", "10.1126/science.1244693"])
 ```
 
-Only DOIs present in the snapshot come back, so the list can be shorter than the input. Needs the full download.
+Only DOIs present in the snapshot come back, so the list can be shorter than the input.
 
 ### A filter
-
-Needs the full download.
 
 ```python
 oam.resolve(institution="I5124864", year=(2014, 2023))    # EPFL, 2014 to 2023
