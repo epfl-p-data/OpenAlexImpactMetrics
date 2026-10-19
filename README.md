@@ -1,6 +1,6 @@
 # OAM — scoped citation impact from OpenAlex
 
-OAM tells you whether a set of papers was cited more or less than comparable papers worldwide. It computes the standard indicators of bibliometrics, MNCS, PP(top 10%) and PP(top 1%), for any set of papers: a university, a lab, a funder's portfolio or a list of DOIs. Everything comes from [OpenAlex](https://openalex.org) and runs on your own machine.
+OAM stands for **OpenAlex Metrics**. It tells you whether a set of papers was cited more or less than comparable papers worldwide. It computes the standard indicators of bibliometrics, MNCS, PP(top 10%) and PP(top 1%), for any set of papers: a university, a lab, a funder's portfolio or a list of DOIs. Everything comes from [OpenAlex](https://openalex.org) and runs on your own machine.
 
 ## Why OAM
 

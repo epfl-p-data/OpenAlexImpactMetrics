@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: OAM
+title: "OAM: OpenAlex Metrics"
 message: If you use OAM, please cite it using the metadata below.
 type: software
 authors:
