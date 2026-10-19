@@ -27,10 +27,12 @@ OAM reads a prebuilt copy of the metric tables. Download it once:
 ```python
 import oam
 
-oam.download()    # about 12 GB
+oam.download()    # 12.1 GiB
 ```
 
 The files go to `~/oam-data`. To store them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable.
+
+The archive stays on disk until the files are extracted, so the install needs about 25 GiB free. It keeps about 12 GiB once the archive is removed.
 
 The data is the OpenAlex snapshot of 2026-09-23, with the default [scope](docs/scope.md). To use another snapshot or another scope, you build the data yourself: see [Building the data](docs/building.md).
 

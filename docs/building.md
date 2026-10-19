@@ -8,6 +8,7 @@ Most users download the data with `oam.download()` and never build it. Build it 
 
 ## What you need
 
+- `pip install "openalex-metrics[build]"`. The `build` extra installs PyArrow, which step 1 uses to read the snapshot. Downloading the data does not need it.
 - About 60 GB of free disk space during the build, and about 23 GB once it is finished
 - A few hours. The first step downloads about 67 GB from the public OpenAlex snapshot, so its duration is set by your bandwidth: about 1 hour 40 minutes at 100 Mbit/s
 - No account or API key. The snapshot is public
@@ -75,7 +76,7 @@ oam.build(reset=True, refresh_manifest=True)
 From a finished build, write the archive `oam.download()` installs:
 
 ```python
-oam.export("dist")    # dist/oam-<snapshot>.tar, about 12 GB
+oam.export("dist")    # dist/oam-<snapshot>.tar, 12.1 GiB for the 2026-09-23 snapshot
 ```
 
 Then:
@@ -100,7 +101,7 @@ oam.download(source="oam-2026-09-23.tar")
 | `OAM_MEMORY_LIMIT` | `20GB` | Memory DuckDB may use in the metrics and resolve steps |
 | `OAM_THREADS` | `8` | Threads DuckDB may use |
 
-They can also go in a `.env` file at the root of a clone. See [`.env.example`](../.env.example).
+Set them in the environment before starting Python.
 
 To try the whole build on a few files first. The result is not usable for scoring:
 
@@ -110,3 +111,19 @@ oam.build(steps="store", limit=3, smallest=True)
 ```
 
 To keep the xpack records, a third of OpenAlex that the default build leaves out of the comparison, use `oam.build(include_xpack=True)`. See [Scope](scope.md#what-is-not-configurable).
+
+## Release checklist
+
+The uploads themselves are done by hand.
+
+1. `oam.export("dist")` from a finished build, then install that archive into an empty directory and re-run the examples in the README.
+2. Upload `dist/oam-<snapshot>.tar` to [Zenodo](https://zenodo.org) under the CC0 licence. For a new snapshot, add a new version of the existing record. Keep the file name `oam.export` wrote.
+3. Set `ZENODO_RECORD` in [`oam/config.py`](../oam/config.py) to the record id.
+4. Put the Zenodo DOI in [`CITATION.cff`](../CITATION.cff) and in the README, under Data and licence.
+5. Check the package, tag the version, and upload it:
+
+   ```bash
+   python -m build
+   twine check dist/*
+   twine upload dist/*
+   ```
