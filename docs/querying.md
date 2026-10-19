@@ -16,9 +16,9 @@ All of them read the data from `oam.download()`. If it is not there, the functio
 
 ## Choose the papers
 
-### A list of OpenAlex ids
+### A list of OpenAlex work ids
 
-Any shape works: `2741809807`, `"W2741809807"` or `"https://openalex.org/W2741809807"`.
+Any of these shapes works: `2741809807`, `"W2741809807"` or `"https://openalex.org/W2741809807"`. A DOI is not a work id, and passing one raises an error rather than scoring a different paper. Use the DOI list below.
 
 ```python
 ids = ["W2103094658", "W2741809807", "https://openalex.org/W2108440715"]

@@ -50,7 +50,7 @@ oam.aggregate(ids)
 
 EPFL's 2014 papers were cited about twice as much as comparable papers: MNCS is 1.96, and the world average is 1. 21.8% of them are among the 10% most cited papers of their field and year, where the world share is about 10%.
 
-You can also pass OpenAlex ids or DOIs directly. [Querying](docs/querying.md) covers the ways to choose papers.
+You can also pass OpenAlex work ids directly. DOIs go through `oam.resolve(doi=[...])`. [Querying](docs/querying.md) covers the ways to choose papers.
 
 ## Documentation
 

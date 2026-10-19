@@ -1,9 +1,10 @@
 """Turn a query into work ids, from the local warehouse.
 
-`oam.resolve` comes from here. Build step 3 has to have run: the answer is read
-from data/resolve/ and never touches the network. It is the same snapshot the
-metrics come from, so a work cannot be resolved that the metrics cannot account
-for, and rerunning the query next month gives the same list.
+`oam.resolve` comes from here. The answer is read from the resolve tables, which
+arrive with oam.download() or from build step 3, and never touches the network.
+It is the same snapshot the metrics come from, so a work cannot be resolved that
+the metrics cannot account for, and rerunning the query next month gives the
+same list.
 
 The dimensions the warehouse holds are listed in DIMENSIONS. For a set of work
 ids you already have, skip this module and pass them to oam.aggregate.
@@ -56,9 +57,16 @@ _ATTRS = {
 # Everything resolve() accepts beyond year and doi.
 DIMENSIONS = tuple(_PAIRS) + tuple(_ATTRS) + ("field", "domain", "proceedings")
 
-# Stored as numbers, so any id shape the caller has is fine.
+# Stored as numbers, so any id shape the caller has is fine. The letter is what
+# stops an institution argument accepting a work id that merely ends in digits.
 _NUMERIC = {"institution", "author", "funder", "source",
             "subfield", "field", "domain"}
+_LETTERS = {
+    "institution": "I", "institutions": "I",
+    "author": "A",
+    "funder": "F", "funders": "F",
+    "source": "S", "sources": "S",
+}
 
 # The arguments corresponding= narrows. It reads the flag off work_institutions or
 # work_authors, so on its own there is nothing for it to apply to.
@@ -83,10 +91,22 @@ def _literals(values):
 
 
 def _numbers(name, given):
-    """Any id shape -> the numbers the warehouse stores."""
-    numbers = [openalex.numeric_id(value) for value in given]
-    if any(number is None for number in numbers):
-        raise ValueError(f"{name}: not an OpenAlex id: {given!r}")
+    """Any id shape -> the numbers the warehouse stores.
+
+    subfield, field and domain are plain numbers. The others carry a type letter,
+    and a prefixed id has to carry the right one.
+    """
+    letter = _LETTERS.get(name)
+    numbers = []
+    for value in given:
+        if letter is None:
+            text = str(value).strip()
+            number = int(text) if text.isdigit() else None
+        else:
+            number = openalex.numeric_id(value, letter=letter)
+        if number is None:
+            raise ValueError(f"{name}: not an OpenAlex id: {value!r}")
+        numbers.append(number)
     return numbers
 
 

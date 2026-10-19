@@ -1,8 +1,8 @@
 """Answer questions about a set of works: get_metrics, aggregate, explain.
 
-All three take any id shape OpenAlex uses — 2741809807, "W2741809807" or the full
-URL — and read the Parquet built by the two build steps. Nothing here hits the
-network.
+All three take an OpenAlex work id — 2741809807, "W2741809807" or the full
+URL — and read the downloaded or built Parquet. Nothing here hits the network.
+DOIs are not work ids; resolve them with oam.resolve(doi=[...]) first.
 """
 
 import re
@@ -13,7 +13,9 @@ from . import config
 from .duck import read_connection as connection
 from .duck import require_tables
 
-_DIGITS = re.compile(r"(\d+)\s*$")
+# A work id, and nothing else. A DOI also ends in digits, and treating it as a work
+# id would silently score a different paper.
+_WORK_ID = re.compile(r"(?:https?://openalex\.org/)?[Ww](\d+)\s*$|^(\d+)\s*$")
 
 # Columns a caller may group by. Restricted because the value is interpolated into
 # SQL, and because grouping by anything else is rarely meaningful.
@@ -22,26 +24,41 @@ GROUPABLE = ("publication_year", "subfield", "is_proceedings", "n_institutions",
 
 
 def work_ids(ids):
-    """Normalise anything id-shaped to a de-duplicated list of ints, order kept.
+    """Normalise OpenAlex work ids to a de-duplicated list of ints, order kept.
 
-    Accepts ints, floats (Parquet sometimes stores ids as DOUBLE), "W2741809807"
-    and "https://openalex.org/W2741809807". Blanks and nulls are dropped.
+    Accepts ints, whole floats (Parquet sometimes stores ids as DOUBLE),
+    "W2741809807", "w2741809807" and "https://openalex.org/W2741809807".
+    Blanks and nulls are dropped. Anything else raises, including a DOI or an
+    institution id: both end in digits and would otherwise score the wrong paper.
     """
     out, seen = [], set()
     for raw in ids:
         if raw is None or (isinstance(raw, float) and raw != raw):
             continue
-        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-            value = int(raw)
+        if isinstance(raw, str) and not raw.strip():
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            value = _parse_work_id(raw)
+        elif isinstance(raw, float) and not raw.is_integer():
+            raise ValueError(f"not an OpenAlex work id: {raw!r}")
         else:
-            match = _DIGITS.search(str(raw).strip())
-            if not match:
-                continue
-            value = int(match.group(1))
+            value = int(raw)
         if value not in seen:
             seen.add(value)
             out.append(value)
     return out
+
+
+def _parse_work_id(raw):
+    text = str(raw).strip()
+    match = _WORK_ID.fullmatch(text)
+    if not match:
+        hint = ""
+        low = text.lower()
+        if low.startswith(("10.", "doi:")) or "doi.org" in low:
+            hint = ". A DOI is not a work id; use oam.resolve(doi=[...])"
+        raise ValueError(f"not an OpenAlex work id: {raw!r}{hint}")
+    return int(match.group(1) or match.group(2))
 
 
 def _register(con, ids):

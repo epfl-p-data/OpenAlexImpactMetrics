@@ -8,11 +8,27 @@ that form.
 import re
 
 _DIGITS = re.compile(r"(\d+)\s*$")
+_BARE = re.compile(r"(\d+)\s*$")
+_PREFIXED = re.compile(r"(?:https?://openalex\.org/)?([A-Za-z])(\d+)\s*$")
 
 
-def numeric_id(openalex_id):
-    """https://openalex.org/W2741809807 -> 2741809807"""
-    match = _DIGITS.search(str(openalex_id))
+def numeric_id(openalex_id, letter=None):
+    """https://openalex.org/W2741809807 -> 2741809807.
+
+    letter  when set, a prefixed id must carry that letter (I for an institution,
+            A for an author, F for a funder, S for a source). A bare number is
+            still accepted. Without letter, any trailing digits are kept.
+    """
+    text = str(openalex_id).strip()
+    if letter is not None:
+        bare = _BARE.fullmatch(text)
+        if bare:
+            return int(bare.group(1))
+        prefixed = _PREFIXED.fullmatch(text)
+        if prefixed is None or prefixed.group(1).upper() != letter.upper():
+            return None
+        return int(prefixed.group(2))
+    match = _DIGITS.search(text)
     return int(match.group(1)) if match else None
 
 
