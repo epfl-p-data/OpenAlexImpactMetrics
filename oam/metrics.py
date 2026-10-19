@@ -1,4 +1,4 @@
-"""Build step 2 of 2 — the metric layers every query is answered from.
+"""Build step 2 of 3 — the metric layers every query is answered from.
 
 Reads works_scope and edges from the store and materializes three tables under
 data/metrics/:
@@ -86,7 +86,7 @@ SELECT
     avg(citations_{W}y)                               AS mean_citations_{W}y,
     quantile_cont(citations_{W}y, 0.90)               AS p90_{W}y,
     quantile_cont(citations_{W}y, 0.99)               AS p99_{W}y,
-    (count(*) >= {config.RELIABILITY_THRESHOLD})      AS is_reliable
+    (count(*) >= {{threshold}})                       AS is_reliable
 FROM works
 GROUP BY 1, 2, 3
 """
@@ -307,7 +307,8 @@ def build(stage=None, include_xpack=False):
             sql = CITATION_COUNTS_SQL.format(
                 citer_filter=citer_filter, edges=config.table_glob("edges"))
         elif table == "bin_stats":
-            sql = BIN_STATS_SQL.format(counts=counts)
+            sql = BIN_STATS_SQL.format(
+                counts=counts, threshold=config.RELIABILITY_THRESHOLD)
         else:
             sql = WORK_METRICS_SQL.format(counts=counts, bins=bins)
 
