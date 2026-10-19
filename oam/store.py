@@ -35,11 +35,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from . import arrow, config
+from . import config
 from .duck import (FileCheckpoint, clean_stale_tmp, connect, copy_parquet,
                    human_bytes, human_time, table_size)
 
 MAX_ATTEMPTS = 4  # the last attempt downloads the file and reads it locally
+
+
+def _arrow():
+    """PyArrow, imported on use so a download-only install does not need it."""
+    try:
+        from . import arrow
+    except ImportError as exc:
+        raise RuntimeError(
+            "Building the store reads the OpenAlex snapshot with PyArrow. "
+            'Install it with: pip install "openalex-metrics[build]"'
+        ) from exc
+    return arrow
 
 
 def _state_dir():
@@ -324,7 +336,7 @@ def process_file(entry, expected_records):
 
             # Materialising src frees the Arrow table straight away, so a worker
             # holds the raw projection and the reduced one only while it crosses over.
-            snapshot = arrow.read_part(source)
+            snapshot = _arrow().read_part(source)
             try:
                 con.register("snapshot", snapshot)
                 con.execute("DROP TABLE IF EXISTS src;")
@@ -442,6 +454,7 @@ def _scope_diff(before, after):
 
 def build(workers=4, limit=None, smallest=False, refresh_manifest=False):
     """Process every pending source file. Safe to rerun; a finished store is a no-op."""
+    _arrow()
     manifest, files = load_manifest(refresh=refresh_manifest)
     _tmp_dir().mkdir(parents=True, exist_ok=True)
     state = FileCheckpoint(_state_dir())

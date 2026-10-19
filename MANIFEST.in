@@ -1,0 +1,5 @@
+include CITATION.cff
+recursive-include tests *.py
+recursive-include docs *
+recursive-include examples *.py
+recursive-include .github *.yml

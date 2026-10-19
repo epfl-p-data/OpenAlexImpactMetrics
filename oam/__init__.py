@@ -16,6 +16,9 @@ query guide, and docs/building.md covers building and publishing a data release.
 """
 
 import json
+import re
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 from . import config
 from . import metrics as _metrics
@@ -29,7 +32,19 @@ from .query import aggregate, explain, get_metrics, work_ids
 from .report import print_profile as profile
 from .resolver import dimension, resolve, resolve_dois
 
-__version__ = "0.1.0"
+def _package_version():
+    """The version in pyproject.toml, via the installed metadata when there is one."""
+    try:
+        return version("openalex-metrics")
+    except PackageNotFoundError:
+        text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+        match = re.search(r'(?m)^version = "([^"]+)"', text)
+        if match is None:
+            raise RuntimeError("pyproject.toml has no version")
+        return match.group(1)
+
+
+__version__ = _package_version()
 
 __all__ = [
     "aggregate", "build", "check", "dimension", "download", "explain", "export",

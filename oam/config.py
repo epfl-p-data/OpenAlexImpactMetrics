@@ -10,11 +10,6 @@ import json
 import os
 from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
-except ImportError:  # optional: the build itself needs no credentials
-    load_dotenv = None
-
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -29,9 +24,6 @@ except ImportError:  # optional: the build itself needs no credentials
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_DIR = PACKAGE_DIR.parent
-
-if load_dotenv is not None:
-    load_dotenv(REPO_DIR / ".env")
 
 
 def _default_data_dir():

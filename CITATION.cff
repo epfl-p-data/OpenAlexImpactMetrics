@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: OAM
+message: If you use OAM, please cite it using the metadata below.
+type: software
+authors:
+  - family-names: Bernard
+    given-names: Gael
+    affiliation: EPFL
+    email: gael.bernard@epfl.ch
+repository-code: https://github.com/epfl-p-data/OpenAlexImpactMetrics
+url: https://github.com/epfl-p-data/OpenAlexImpactMetrics
+license: MIT
+version: 0.1.0
+# The data release has its own DOI. Fill this in once the archive is on Zenodo:
+# identifiers:
+#   - type: doi
+#     value: 10.5281/zenodo.XXXXXXX
+#     description: OpenAlex citation-impact data release

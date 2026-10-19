@@ -78,7 +78,7 @@ def export(path):
         raise RuntimeError(
             f"export() needs {', '.join(missing)} built. Run oam.build() first."
         )
-    license_src = config.REPO_DIR / "docs" / "openalex-LICENSE.txt"
+    license_src = config.PACKAGE_DIR / "LICENSE-OpenAlex.txt"
     if not license_src.is_file():
         raise RuntimeError(f"OpenAlex licence text not found at {license_src}")
 
