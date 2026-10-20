@@ -25,6 +25,7 @@ fetch all of authorships, which is most of what the build transfers; everything 
 the read is ordinary SQL over the Arrow table.
 """
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -32,6 +33,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 import requests
 
@@ -267,6 +269,41 @@ def _output_path(table, key):
 # Manifest
 # ---------------------------------------------------------------------------
 
+def record_snapshot(name, content, url, response=None, fetched_at=None):
+    """Append one fingerprint of a manifest to the snapshot history.
+
+    Written whenever a manifest is fetched, and also for a backfill of a file that
+    was cached before this existed. date changes with each OpenAlex release; etag
+    and sha256 also catch a republish that keeps the same date. A backfill has no
+    response, so etag and last_modified are null.
+
+    Returns the record it appended.
+    """
+    manifest = json.loads(content)
+    record_count = manifest.get("record_count")
+    if record_count is None:
+        record_count = (manifest.get("meta") or {}).get("record_count")
+    etag = last_modified = None
+    if response is not None:
+        etag = (response.headers.get("ETag") or "").strip().strip('"') or None
+        last_modified = response.headers.get("Last-Modified")
+    entry = {
+        "manifest": name,
+        "date": manifest.get("date"),
+        "record_count": record_count,
+        "etag": etag,
+        "last_modified": last_modified,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "url": url,
+        "fetched_at": fetched_at or datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    path = config.SNAPSHOT_HISTORY_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as handle:
+        handle.write(json.dumps(entry, separators=(",", ":")) + "\n")
+    return entry
+
+
 def load_manifest(refresh=False):
     """The snapshot manifest, cached under data/snapshot/.
 
@@ -279,6 +316,7 @@ def load_manifest(refresh=False):
         resp = requests.get(config.MANIFEST_URL, timeout=120)
         resp.raise_for_status()
         path.write_bytes(resp.content)
+        record_snapshot("works", resp.content, config.MANIFEST_URL, response=resp)
 
     manifest = json.loads(path.read_text())
     files = []

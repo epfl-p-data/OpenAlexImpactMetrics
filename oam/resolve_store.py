@@ -136,6 +136,11 @@ def load_entity_manifest(refresh=False):
         response = requests.get(config.ENTITY_MANIFEST_URL, timeout=300)
         response.raise_for_status()
         path.write_bytes(response.content)
+        # Imported here: store is the step that owns the history file, and importing
+        # it at module level would pull the store build into every resolve import.
+        from .store import record_snapshot
+        record_snapshot("entities", response.content, config.ENTITY_MANIFEST_URL,
+                        response=response)
 
     manifest = json.loads(path.read_text())
     return manifest, {

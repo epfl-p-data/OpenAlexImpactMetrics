@@ -11,8 +11,7 @@ repository-code: https://github.com/epfl-p-data/OpenAlexImpactMetrics
 url: https://github.com/epfl-p-data/OpenAlexImpactMetrics
 license: MIT
 version: 0.1.0
-# The data release has its own DOI. Fill this in once the archive is on Zenodo:
-# identifiers:
-#   - type: doi
-#     value: 10.5281/zenodo.XXXXXXX
-#     description: OpenAlex citation-impact data release
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23493154
+    description: "Data release on Zenodo, all versions. Each snapshot has its own version DOI."

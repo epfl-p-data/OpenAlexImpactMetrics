@@ -12,8 +12,9 @@ tables are sorted on their lookup key, and re-sorting them would make every
 query read the whole file.
 
 download() installs that archive into the data directory. With no source it
-uses the Zenodo record in config.ZENODO_RECORD. source may also be a local
-.tar, a directory containing one, or an https URL.
+uses the latest version of the Zenodo record in config.ZENODO_RECORD, or the
+version given by record. source may also be a local .tar, a directory
+containing one, or an https URL.
 """
 
 import hashlib
@@ -198,22 +199,26 @@ def _version():
 # Download
 # ---------------------------------------------------------------------------
 
-def download(source=None, replace=False):
+def download(source=None, replace=False, record=None):
     """Install the published data into the data directory.
 
-    source  None uses config.ZENODO_RECORD. Otherwise a .tar path, a directory
+    source  None downloads from Zenodo. Otherwise a .tar path, a directory
             containing one, or an https URL.
+    record  the Zenodo record to download from. None uses config.ZENODO_RECORD,
+            the all-versions record, which is always the latest snapshot. The
+            record id of one version pins that snapshot.
     replace wipe a data directory built from a different snapshot first.
             Refused without this, so a download cannot mix two releases.
     """
-    # An explicit file or URL can be a different snapshot, so it is never
-    # waved through on the strength of whatever is already installed. Only the
-    # Zenodo default, which is the one release this version knows, can be.
-    if source is None and not replace and _satisfied():
-        print(f"✓ data already installed at {config.DATA_DIR}")
-        return installed()
-
-    src = _locate(source)
+    if source is not None and record is not None:
+        raise ValueError("pass source or record, not both")
+    if source is None:
+        src = _from_zenodo(record, replace)
+        if src is None:
+            print(f"✓ data already installed at {config.DATA_DIR}")
+            return installed()
+    else:
+        src = _locate(source)
     path = _materialize(src)
     meta = _read_tar_meta(path)
     _check_format(meta, path)
@@ -275,11 +280,43 @@ def _existing_snapshot():
     return info["snapshot"] if info else None
 
 
+def _from_zenodo(record, replace):
+    """The URL of the Zenodo archive to fetch, or None when it is already installed.
+
+    The snapshot is read from the file name before anything is fetched, so a
+    data directory holding another snapshot is refused without first pulling
+    12 GiB. When Zenodo cannot be reached, complete installed data is kept.
+    """
+    try:
+        url, name = _zenodo_file(record)
+    except requests.RequestException:
+        if not replace and _satisfied():
+            print("  Zenodo could not be reached, so a newer snapshot was not looked for.")
+            return None
+        raise
+    offered = _snapshot_of(name)
+    existing = _existing_snapshot()
+    if not replace and existing == offered and _satisfied():
+        return None
+    if existing and offered and existing != offered and not replace:
+        raise RuntimeError(
+            f"{config.DATA_DIR} holds snapshot {existing}, and Zenodo offers "
+            f"{offered}. Pass replace=True to switch to {offered}, or record= the "
+            f"id of the {existing} version (listed on the Zenodo page) to keep it."
+        )
+    return url
+
+
+def _snapshot_of(name):
+    """oam-2026-10-14.tar -> 2026-10-14, the name export() gives an archive."""
+    stem = Path(name).name
+    if stem.startswith("oam-") and stem.endswith(".tar"):
+        return stem[len("oam-"):-len(".tar")]
+    return None
+
+
 def _locate(source):
     """A local .tar path, or an https URL, for the one archive to install."""
-    if source is None:
-        return _zenodo_url()
-
     as_path = _as_path(source)
     if as_path is not None and as_path.is_dir():
         matches = sorted(as_path.glob("oam-*.tar"))
@@ -305,24 +342,29 @@ def _as_path(source):
     return None
 
 
-def _zenodo_url():
-    record = config.ZENODO_RECORD
+def _zenodo_file(record=None):
+    """(download URL, file name) of the one oam-*.tar in a Zenodo record.
+
+    Zenodo redirects an all-versions record to its newest version and serves a
+    version's own record as it is, so the same request covers both.
+    """
+    record = record or config.ZENODO_RECORD
     if not record:
         raise RuntimeError(
-            "No Zenodo record is configured yet (oam.config.ZENODO_RECORD). "
-            "Pass source= a local .tar file or an https URL."
+            "No Zenodo record is configured (oam.config.ZENODO_RECORD). "
+            "Pass record= a Zenodo record id, or source= a local .tar file or an https URL."
         )
     resp = requests.get(f"{config.ZENODO_API}{record}", timeout=60)
     resp.raise_for_status()
     matches = []
     for entry in resp.json().get("files") or []:
-        key = entry.get("key") or entry.get("filename") or ""
-        if not Path(str(key)).name.startswith("oam-") or not str(key).endswith(".tar"):
+        key = str(entry.get("key") or entry.get("filename") or "")
+        if not Path(key).name.startswith("oam-") or not key.endswith(".tar"):
             continue
         links = entry.get("links") or {}
         url = links.get("self") or links.get("content")
         if url:
-            matches.append(url)
+            matches.append((url, key))
     if len(matches) != 1:
         raise RuntimeError(
             f"Zenodo record {record} does not have exactly one oam-*.tar "

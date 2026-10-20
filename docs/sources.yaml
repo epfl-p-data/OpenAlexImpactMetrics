@@ -14,12 +14,12 @@
 - file: ../data/snapshot/works_manifest.json
   origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
   url: "s3://openalex/data/parquet/works/manifest.json"
-  accessed: 2026-09-10
-  description: "Per-file manifest of the works Parquet snapshot: 2,446 part files across 482 updated_date partitions, 510,372,821 works, 724,970,323,127 bytes. Manifest date 2026-06-26. Each entry carries the S3 url plus record_count and content_length, used to drive and verify the build."
+  accessed: 2026-10-19
+  description: "Per-file manifest of the works Parquet snapshot: 1,898 part files across 396 updated_date partitions, 464,765,485 works, 744,042,462,611 bytes. Manifest date 2026-10-14. Each entry carries the S3 url plus record_count and content_length, used to drive and verify the build."
   format: JSON
   encoding: utf-8
   confidential: false
-  notes: "Cached by oam/store.py and refetched only with oam.build(refresh_manifest=True), because a new quarterly snapshot invalidates an existing store. The premium daily bucket (s3://openalex-snapshots) was tested on 2026-09-10 and rejected the project API key with HTTP 403 'Plan upgrade required', so the free quarterly public snapshot is the source."
+  notes: "Cached by oam/store.py and refetched only with oam.build(refresh_manifest=True), because a new quarterly snapshot invalidates an existing store. Each fetch appends the manifest date, ETag and SHA-256 to ../data/snapshot/history.jsonl; snapshots.jsonl in this directory is the committed copy of that history. The premium daily bucket (s3://openalex-snapshots) was tested on 2026-09-10 and rejected the project API key with HTTP 403 'Plan upgrade required', so the free quarterly public snapshot is the source."
 
 - file: openalex-parquet-manifest.json
   origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
@@ -34,8 +34,8 @@
 - file: ../data/snapshot/entities_manifest.json
   origin: "OpenAlex snapshot, free public S3 bucket (anonymous access)"
   url: "s3://openalex/data/parquet/manifest.json"
-  accessed: 2026-09-15
-  description: "Per-file manifest for every entity type. Build step 3 reads the file lists for four of them to build its dimension tables: institutions (127,784 records, 137 files, 95.6 MB), sources (283,287 / 120 / 170.3 MB), funders (45,640 / 120 / 11.9 MB) and subfields (252 / 1 / 174 KB). Manifest date 2026-06-26."
+  accessed: 2026-10-19
+  description: "Per-file manifest for every entity type. Build step 3 reads the file lists for four of them to build its dimension tables: institutions (143,455 records, 83 files, 89.7 MB), sources (268,629 / 136 / 148.5 MB), funders (41,799 / 89 / 10.7 MB) and subfields (252 / 2 / 185 KB). Manifest date 2026-10-14."
   format: JSON
   encoding: utf-8
   confidential: false

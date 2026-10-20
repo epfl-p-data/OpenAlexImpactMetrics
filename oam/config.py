@@ -39,8 +39,8 @@ def _default_data_dir():
 def _apply_data_dir(path):
     """Point every derived path at `path`. Called once at import and by set_data_dir."""
     global DATA_DIR, SNAPSHOT_DIR, STORE_DIR, METRICS_DIR, RESOLVE_DIR, LOGS_DIR
-    global MANIFEST_PATH, ENTITY_MANIFEST_PATH, STORE_STATE_PATH, RESOLVE_RAW_DIR
-    global BUNDLE_PATH
+    global MANIFEST_PATH, ENTITY_MANIFEST_PATH, SNAPSHOT_HISTORY_PATH
+    global STORE_STATE_PATH, RESOLVE_RAW_DIR, BUNDLE_PATH
     DATA_DIR = Path(path).expanduser().resolve()
     SNAPSHOT_DIR = DATA_DIR / "snapshot"   # cached OpenAlex manifests
     STORE_DIR = DATA_DIR / "store"         # build step 1 output
@@ -49,6 +49,10 @@ def _apply_data_dir(path):
     LOGS_DIR = DATA_DIR / "logs"           # one timestamped file per build
     MANIFEST_PATH = SNAPSHOT_DIR / "works_manifest.json"
     ENTITY_MANIFEST_PATH = SNAPSHOT_DIR / "entities_manifest.json"
+    # One line per manifest fetched from the bucket. A later check compares the
+    # latest ETag here with a HEAD request, so a new release is visible without
+    # downloading it. Survives a reset: the snapshot directory is not rebuilt.
+    SNAPSHOT_HISTORY_PATH = SNAPSHOT_DIR / "history.jsonl"
     # What the store was built from: the snapshot release, the scope, and the
     # projection version that produced it. A downloaded bundle ships this too.
     STORE_STATE_PATH = STORE_DIR / "_state" / "snapshot.json"
@@ -92,9 +96,11 @@ DIM_TABLES = ("dim_topics", "dim_institutions", "dim_sources", "dim_funders")
 PROJECTION_VERSION = 2
 BUNDLE_FORMAT = PROJECTION_VERSION
 
-# Numeric id of the Zenodo record that holds the published data release. None until
-# the first release exists; download() then needs an explicit file or URL.
-ZENODO_RECORD = None
+# The Zenodo record download() fetches from. This is the all-versions record, which
+# Zenodo resolves to its newest version, so a new snapshot needs only a new version
+# on Zenodo, not a new release of OAM. A version's own record id pins that snapshot.
+# OAM_ZENODO_RECORD overrides it, and download(record=...) overrides both.
+ZENODO_RECORD = os.environ.get("OAM_ZENODO_RECORD", "23493154")
 ZENODO_API = "https://zenodo.org/api/records/"
 
 

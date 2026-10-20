@@ -7,9 +7,10 @@ import tarfile
 from pathlib import Path
 
 import pytest
+import requests
 
 import oam
-from oam import config
+from oam import bundle, config
 from oam.bundle import _safe_extract
 
 
@@ -79,10 +80,61 @@ def test_path_escape_is_refused(tmp_path):
     assert not (tmp_path / "evil.txt").exists()
 
 
-def test_download_without_a_record_says_so(tmp_path):
+def test_download_without_a_record_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "ZENODO_RECORD", None)
     oam.set_data_dir(tmp_path / "empty")
     with pytest.raises(RuntimeError, match="ZENODO_RECORD"):
         oam.download()
+
+
+def test_source_and_record_together_are_refused(tmp_path):
+    with pytest.raises(ValueError, match="source or record"):
+        oam.download(source=tmp_path / "oam-2026-09-23.tar", record=1)
+
+
+def _installed_from(tar, tmp_path):
+    oam.set_data_dir(tmp_path / "installed")
+    oam.download(source=tar)
+
+
+def _zenodo_offers(monkeypatch, name, seen=None):
+    def fake(record=None):
+        if seen is not None:
+            seen.append(record)
+        return "https://zenodo.invalid/" + name, name
+    monkeypatch.setattr(bundle, "_zenodo_file", fake)
+    monkeypatch.setattr(bundle, "_materialize",
+                        lambda src: pytest.fail(f"downloaded {src}"))
+
+
+def test_latest_already_installed_downloads_nothing(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    _zenodo_offers(monkeypatch, "oam-2026-09-23.tar")
+    assert oam.download()["snapshot"] == "2026-09-23"
+
+
+def test_newer_snapshot_needs_replace_before_downloading(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    _zenodo_offers(monkeypatch, "oam-2027-01-15.tar")
+    with pytest.raises(RuntimeError, match="replace=True"):
+        oam.download()
+
+
+def test_record_pins_a_version(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    seen = []
+    _zenodo_offers(monkeypatch, "oam-2026-09-23.tar", seen)
+    oam.download(record=23493155)
+    assert seen == [23493155]
+
+
+def test_installed_data_is_kept_when_zenodo_is_unreachable(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+
+    def offline(record=None):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(bundle, "_zenodo_file", offline)
+    assert oam.download()["snapshot"] == "2026-09-23"
 
 
 def _tiny_tar(path, sha):
