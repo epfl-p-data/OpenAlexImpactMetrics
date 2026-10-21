@@ -136,9 +136,9 @@ A new version of the package is only needed when the code changes. A new snapsho
 
 ## Release the package
 
-Publishing happens from GitHub, with no token stored in the repository. The first time, on [PyPI](https://pypi.org), add a pending publisher for the project `openalex-metrics`: owner `epfl-p-data`, repository `OpenAlexImpactMetrics`, workflow `publish.yml`, environment `pypi`.
+Publishing happens from GitHub, with no token stored in the repository. [PyPI](https://pypi.org/project/openalex-metrics/) trusts the workflow `publish.yml` of `epfl-p-data/OpenAlexImpactMetrics`, running in the environment `pypi`. Renaming the workflow or the repository breaks that link until it is updated on PyPI.
 
-Then, for each release:
+For each release:
 
 1. Set `version` in [`pyproject.toml`](../pyproject.toml) and in [`CITATION.cff`](../CITATION.cff), and push.
 2. On GitHub, create a release named `v` followed by that version, for example `v0.1.0`.

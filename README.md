@@ -1,5 +1,8 @@
 # OAM — citation impact from OpenAlex
 
+[![PyPI](https://img.shields.io/pypi/v/openalex-metrics)](https://pypi.org/project/openalex-metrics/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23493154.svg)](https://doi.org/10.5281/zenodo.23493154)
+
 OAM tells you whether a set of papers was cited more or less than comparable papers. You can score a university, a researcher, a country, a funder's portfolio or a list of DOIs. It runs on your own machine, and the data comes from [OpenAlex](https://openalex.org).
 
 ## Get started
