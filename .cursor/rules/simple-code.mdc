@@ -1,0 +1,20 @@
+---
+description: Keep OAM code, config and API simple
+alwaysApply: true
+---
+
+# Simple code
+
+- Write the shortest clear code, in the style of the surrounding module. No speculative helpers, classes or layers.
+- No long, defensive LLM-style code: no checks for cases that cannot happen, no comments restating the code.
+- In case of doubt, make a choice. Do not leave it open, and do not turn it into a parameter, a config constant or a switch.
+- Keep config small: add a constant to `oam/config.py` only for a real definition (the scope, the window, a threshold).
+- Remove rather than deprecate: no aliases or compatibility shims for renamed or removed names.
+
+```python
+# Bad: options for choices that should be made once
+def aggregate(ids, by="publication_year", counting="full", ties="midrank", min_citations=1): ...
+
+# Good
+def aggregate(ids, by="publication_year", counting="full", reliable_only=True): ...
+```
