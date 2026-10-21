@@ -31,11 +31,55 @@ def test_export_then_download_scores_the_same(built, tmp_path):
     assert info["snapshot"] == "2026-09-23"
     assert "tier" not in info
     after = _scores(ids)
-    for key in ("P", "TCS", "MNCS", "PP_top10"):
+    for key in ("P_full", "TCS_full", "MNCS_full", "PP_top10_full"):
         assert after[key] == pytest.approx(before[key])
 
     again = oam.download(source=tar)
     assert again["snapshot"] == "2026-09-23"
+
+
+def test_light_parquet_is_sorted_and_names_its_origin(built, tmp_path):
+    import duckdb
+
+    tar = oam.export(tmp_path / "dist")
+    light = tar.with_name("oam-metrics-2026-09-23.parquet")
+    con = duckdb.connect()
+    ids = [row[0] for row in con.execute(
+        f"SELECT work_id FROM read_parquet('{light.as_posix()}')").fetchall()]
+    assert ids == sorted(ids) and ids
+    meta = {
+        (key.decode() if isinstance(key, bytes) else key):
+        (value.decode() if isinstance(value, bytes) else value)
+        for key, value in con.execute(
+            f"SELECT key, value FROM parquet_kv_metadata('{light.as_posix()}')"
+        ).fetchall()
+    }
+    assert meta["snapshot"] == "2026-09-23"
+    assert meta["license"] == "CC0-1.0"
+    assert "is_english" in meta["scope"]
+    assert "definitions" in meta["settings"]
+
+
+def test_old_format_is_refused_and_replaced(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    meta = json.loads(config.BUNDLE_PATH.read_text())
+    meta["format"] = config.BUNDLE_FORMAT - 1
+    config.BUNDLE_PATH.write_text(json.dumps(meta))
+    with pytest.raises(RuntimeError, match="format"):
+        oam.get_metrics([101])
+
+    fetched = []
+    monkeypatch.setattr(bundle, "_zenodo_file",
+                        lambda record=None: ("https://zenodo.invalid/oam.tar", "oam-2026-09-23.tar"))
+
+    def stop(src):
+        fetched.append(src)
+        raise RuntimeError("fetched")
+
+    monkeypatch.setattr(bundle, "_materialize", stop)
+    with pytest.raises(RuntimeError, match="fetched"):
+        oam.download()
+    assert fetched
 
 
 def test_snapshot_mismatch_needs_replace(built, tmp_path):

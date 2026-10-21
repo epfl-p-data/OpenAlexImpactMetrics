@@ -13,7 +13,7 @@ Python 3.11 or newer.
 pip install openalex-metrics
 ```
 
-Download the data once. This fetches the latest release from [Zenodo](https://doi.org/10.5281/zenodo.23493154), about 12 GB, and checks every file:
+Download the data once. This fetches the latest release from [Zenodo](https://doi.org/10.5281/zenodo.23493154), 11.8 GiB, and checks every file:
 
 ```python
 import oam
@@ -50,12 +50,12 @@ oam.aggregate(ids).round(2)
 ```
 
 ```
- publication_year    P  P_weighted      TCS   MCS  MNCS  PP_top10  PP_top1
-             2020 4433      4433.0 200062.0 45.13  1.95     21.52     3.41
-             2021 4498      4498.0 150841.0 33.54  1.80     20.08     3.11
-             2022 4349      4349.0 120403.0 27.69  1.89     20.74     2.90
-             2023 4470      4470.0  85462.0 19.12  1.74     20.25     3.02
-             2024 4457      4457.0  58542.0 13.13  1.83     21.11     3.43
+ publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
+             2020    4433   89507.0     20.19       1.86          20.53          3.09                True
+             2021    4498   81217.0     18.06       1.74          19.05          2.82                True
+             2022    4349   81253.0     18.68       1.85          19.29          2.67                True
+             2023    4470   68835.0     15.40       1.68          18.59          2.77               False
+             2024    4457   47310.0     10.61       1.76          19.14          3.14               False
 ```
 
 ### A researcher
@@ -68,9 +68,11 @@ oam.aggregate(ids, by=None).round(2)
 ```
 
 ```
-  P  P_weighted     TCS   MCS  MNCS  PP_top10  PP_top1
-391       391.0 91886.0 235.0  5.97     59.34    14.83
+ P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
+    391   27140.0     69.41       6.23          61.64         18.41               False
 ```
+
+`window_is_complete` is false because the set includes papers whose four years have not elapsed.
 
 ### A country
 
@@ -82,27 +84,30 @@ oam.aggregate(ids).round(2)
 ```
 
 ```
- publication_year     P  P_weighted       TCS   MCS  MNCS  PP_top10  PP_top1
-             2020 52142     52142.0 2108683.0 40.44  1.80     18.78     2.87
-             2021 55231     55231.0 1744205.0 31.58  1.78     18.79     3.02
-             2022 53311     53311.0 1206510.0 22.63  1.71     18.77     2.88
-             2023 52502     52502.0  887357.0 16.90  1.71     19.19     3.08
-             2024 52768     52768.0  605921.0 11.48  1.75     19.27     2.99
+ publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
+             2020   52142  966664.0     18.54       1.71          17.67          2.63                True
+             2021   55231  944519.0     17.10       1.71          17.51          2.73                True
+             2022   53311  801017.0     15.03       1.64          17.21          2.61                True
+             2023   52502  722339.0     13.76       1.65          17.44          2.75               False
+             2024   52768  494686.0      9.37       1.68          17.55          2.73               False
 ```
 
 You can select papers the same way by author, funder, journal, field or DOI. [Querying](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/querying.md) lists every option.
 
 ## Reading the numbers
 
-- **P** is the number of papers that received a score.
-- **MNCS** compares those papers with similar papers worldwide. The world average is 1. A value of 2 means cited twice as much.
-- **PP_top10** is the share of papers among the 10% most cited of their group. For the world, that share is about 10%. **PP_top1** is the same for the top 1%.
+- **P_full** is the number of papers that received a score.
+- **MNCS_full** compares those papers with similar papers worldwide, using citations from the publication year and the three following years, without self-citations. The world average is 1. A value of 2 means cited twice as much.
+- **PP_top10_full** is the share of papers among the 10% most cited of their cohort. For the world it sits a little above 10%, because papers tied at the threshold are all counted in. **PP_top1_full** is the same for the top 1%.
+- **window_is_complete** is true when every paper in that row has had its four years. Recent years are scored anyway, and the flag says the count is not a four-year count yet.
 
 [How the scores work](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md) explains the other columns, and full and fractional counting.
 
 ## How this differs from OpenAlex
 
 OpenAlex already gives most works a citation score, the FWCI. It compares each work with everything OpenAlex indexes, and it counts citations from anything, including preprints, datasets and theses. OAM compares a paper only with peer-reviewed research papers like it, and counts only the citations that come from such papers.
+
+A paper is compared with its cohort: the same subfield, the same publication year, and journal or conference. OpenAlex groups by year, work type and subfield, and splits articles into journal and conference articles. OAM also drops self-citations, which the OpenAlex and Scopus FWCI keep. The two scores are stored side by side. [OAM and OpenAlex](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#oam-and-openalex) lists each column and the difference.
 
 ## Which papers are scored
 

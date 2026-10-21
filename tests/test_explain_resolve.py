@@ -5,6 +5,16 @@ import pytest
 import oam
 
 
+def test_an_edited_scope_is_what_the_store_builds():
+    from oam.store import selects
+    assert "is_english" in selects()["works_status"]
+    removed = oam.config.SCOPE.pop("is_english")
+    try:
+        assert "is_english" not in selects()["works_status"]
+    finally:
+        oam.config.SCOPE["is_english"] = removed
+
+
 def test_explain_names_the_failed_rule():
     why = oam.explain([101, 401, 999]).set_index("work_id")
     assert bool(why.loc[101, "found"]) is True
@@ -23,7 +33,7 @@ def test_explain_names_the_failed_rule():
 def test_out_of_scope_work_is_reported_but_not_scored():
     row = oam.get_metrics([401]).iloc[0]
     assert bool(row.in_scope) is False
-    assert row.ncs != row.ncs  # NaN
+    assert row.ncs_4y != row.ncs_4y  # NaN
 
 
 def test_resolve_institution_country_and_year():

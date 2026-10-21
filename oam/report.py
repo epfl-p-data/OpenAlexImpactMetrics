@@ -99,17 +99,20 @@ def profile():
 
     if config.table_dir("work_metrics").is_dir():
         out["citations"] = _scalar(con, f"""
-            SELECT count(*), 100.0 * avg(is_cited::INT), sum(citations)::BIGINT,
-                   median(citations), quantile_cont(citations, 0.90),
-                   quantile_cont(citations, 0.99), max(citations)
+            SELECT count(*), 100.0 * avg((citations_4y > 0)::INT),
+                   sum(citations_4y)::BIGINT,
+                   median(citations_4y), quantile_cont(citations_4y, 0.90),
+                   quantile_cont(citations_4y, 0.99), max(citations_4y)
             FROM read_parquet('{works}')""")
         out["world"] = _scalar(con, f"""
-            SELECT count(*), avg(ncs), 100.0 * avg(is_in_top_10_percent::INT), 100.0 * avg(is_in_top_1_percent::INT)
+            SELECT count(*), avg(ncs_4y),
+                   100.0 * avg(is_in_top_10_percent_4y::INT),
+                   100.0 * avg(is_in_top_1_percent_4y::INT)
             FROM read_parquet('{works}')
-            WHERE publication_year BETWEEN 2014 AND 2023 AND cohort_is_reliable""")
+            WHERE window_is_complete AND cohort_is_reliable""")
         out["recent"] = con.execute(f"""
             SELECT publication_year, count(*), count(*) FILTER (WHERE is_proceedings),
-                   avg(citations), 100.0 * avg(is_cited::INT)
+                   avg(citations_4y), 100.0 * avg((citations_4y > 0)::INT)
             FROM read_parquet('{works}')
             WHERE publication_year BETWEEN {time.gmtime().tm_year - 6}
                                        AND {time.gmtime().tm_year - 2}
@@ -164,14 +167,14 @@ def print_profile(p=None):
 
     if "citations" in p:
         n, pct_cited, total, p50, p90, p99, mx = p["citations"]
-        print(f"\n  Citations received      {total:>15,}   across {n:,} scored works")
+        print(f"\n  Citations, 4-year       {total:>15,}   across {n:,} scored works")
         print(f"    cited at least once   {pct_cited:>14.1f}%")
         print(f"    median / p90 / p99    {f'{p50:,.0f} / {p90:,.0f} / {p99:,.0f}':>15}"
               f"   max {mx:,}")
 
     if "world" in p:
         n, mncs, pp10, pp1 = p["world"]
-        print(f"\n  World baselines, 2014-2023, reliable cohorts ({n:,} works)")
+        print(f"\n  World baselines, complete windows, reliable cohorts ({n:,} works)")
         # No reliable cohorts at all means the averages are null, which happens on a
         # build limited to a few source files rather than the whole snapshot.
         if mncs is None:

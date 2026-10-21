@@ -144,11 +144,35 @@ def export(path):
                 if src.suffix == ".parquet":
                     src.unlink()
         os.replace(tmp_tar, dest)
+        light = out_dir / f"oam-metrics-{snapshot.get('date')}.parquet"
+        rows = _write_light(con, snapshot, light)
+        print(f"  ✓ {'metrics parquet':<20} {rows:>15,} rows  {human_bytes(light.stat().st_size)}")
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
     print(f"\n✓ {dest.name}  {human_bytes(dest.stat().st_size)}")
     return dest
+
+
+def _write_light(con, snapshot, target):
+    """One sorted Parquet of the scores, with the build recorded in the file."""
+    recorded = config.METRICS_DIR / "_state" / "stages.json"
+    settings = {}
+    if recorded.is_file():
+        stages = json.loads(recorded.read_text())
+        settings = next(iter(stages.values()), {}).get("config") or {}
+    src = f"read_parquet('{config.table_glob('work_metrics')}', hive_partitioning=true)"
+    columns = [row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()]
+    exclude = " EXCLUDE (updated_date)" if "updated_date" in columns else ""
+    metadata = {
+        "oam_version": _version(),
+        "snapshot": snapshot.get("date") or "",
+        "scope": json.dumps(snapshot.get("scope"), separators=(",", ":")),
+        "settings": json.dumps(settings, separators=(",", ":")),
+        "license": "CC0-1.0",
+    }
+    return copy_parquet(
+        con, f"SELECT *{exclude} FROM {src} ORDER BY work_id", target, metadata=metadata)
 
 
 def _write_table(con, table, target):
@@ -243,7 +267,7 @@ def download(source=None, replace=False, record=None):
 def _satisfied():
     """True when the recorded files are already present at the recorded sizes."""
     info = installed()
-    if not info or not info["files"]:
+    if not info or info.get("format") != config.BUNDLE_FORMAT or not info["files"]:
         return False
     for rel, spec in info["files"].items():
         path = config.DATA_DIR / rel
@@ -255,7 +279,9 @@ def _satisfied():
 def _archive_already_present(meta):
     """True when this exact archive is already what the data directory holds."""
     info = installed()
-    if not info or info.get("snapshot") != meta.get("snapshot"):
+    if not info or info.get("format") != config.BUNDLE_FORMAT:
+        return False
+    if info.get("snapshot") != meta.get("snapshot"):
         return False
     # snapshot.json is what queries trust. A hand-edited copy must not be
     # treated as the bundle it no longer describes.
@@ -446,7 +472,8 @@ def _check_format(meta, path):
     if meta.get("format") != config.BUNDLE_FORMAT:
         raise RuntimeError(
             f"{Path(path).name} is bundle format {meta.get('format')}; "
-            f"this OAM reads format {config.BUNDLE_FORMAT}."
+            f"this OAM reads format {config.BUNDLE_FORMAT}. "
+            f"Upgrade OAM, or pass record= the id of a version this OAM can read."
         )
 
 

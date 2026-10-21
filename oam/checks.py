@@ -81,10 +81,10 @@ def _checks(include_xpack, deep):
          lambda v: v == 0, "subfield is a cohort dimension and is a scope criterion",
          scope_tables),
 
-        ("cohort_stats     statistics are ordered",
+        ("cohort_stats  statistics are ordered",
          f"SELECT count(*) FROM read_parquet('{cohorts}') "
-         f"WHERE n_works <= 0 OR median_citations > p90 OR p90 > p99 OR mean_citations < 0",
-         lambda v: v == 0, "median <= p90 <= p99 must hold in every cohort",
+         f"WHERE n_works <= 0 OR mean_citations_4y < 0 OR p90_4y > p99_4y",
+         lambda v: v == 0, "mean >= 0 and p90 <= p99 must hold in every cohort",
          ("cohort_stats",)),
 
         ("work_metrics  one row per scored work",
@@ -98,25 +98,42 @@ def _checks(include_xpack, deep):
          lambda v: v == 0, "a duplicate would be double counted in every aggregate",
          metrics_tables),
 
-        ("work_metrics  world MNCS is 1.0",
-         f"SELECT avg(ncs) FROM read_parquet('{works}')",
-         lambda v: abs(v - 1.0) <= 0.001, "a mean of ratios to cohort means can only be 1",
+        ("work_metrics  world MNCS is 1.0 in every year",
+         f"SELECT count(*) FROM (SELECT publication_year FROM read_parquet('{works}') "
+         f"GROUP BY 1 HAVING abs(avg(ncs_4y) - 1.0) > 0.001)",
+         lambda v: v == 0, "a mean of ratios to cohort means can only be 1",
          metrics_tables),
 
-        ("work_metrics  citation_normalized_percentile and decile in range",
+        ("work_metrics  top shares stay near 10 and 1",
+         f"SELECT count(*) FROM ("
+         f" SELECT publication_year FROM read_parquet('{works}') "
+         f" WHERE window_is_complete AND cohort_is_reliable "
+         f" GROUP BY 1 HAVING count(*) >= 100000 AND ("
+         f"  100.0 * avg(is_in_top_10_percent_4y::INT) NOT BETWEEN 10.4 AND 12.0 OR "
+         f"  100.0 * avg(is_in_top_1_percent_4y::INT) NOT BETWEEN 1.02 AND 1.14))",
+         lambda v: v == 0, "ties at the threshold keep both a little above the name",
+         metrics_tables),
+
+        ("work_metrics  percentile and top flags are consistent",
          f"SELECT count(*) FROM read_parquet('{works}') "
-         f"WHERE citation_normalized_percentile <= 0 OR citation_normalized_percentile > 1 OR decile NOT BETWEEN 1 AND 10",
-         lambda v: v == 0, "CUME_DIST is (0,1] and NTILE(10) is 1..10",
+         f"WHERE citation_normalized_percentile_4y <= 0 "
+         f" OR citation_normalized_percentile_4y >= 1 "
+         f" OR (is_in_top_10_percent_4y AND citations_4y < 1) "
+         f" OR (is_in_top_1_percent_4y AND NOT is_in_top_10_percent_4y)",
+         lambda v: v == 0, "mid-rank is in (0,1), and a top flag needs a citation",
          metrics_tables),
 
-        ("work_metrics  scored works in reliable cohorts have an ncs",
-         f"SELECT count(*) FROM read_parquet('{works}') WHERE cohort_is_reliable AND ncs IS NULL",
-         lambda v: v == 0, "a reliable cohort has a positive mean, so ncs must exist",
+        ("work_metrics  a complete reliable cohort has an ncs",
+         f"SELECT count(*) FROM read_parquet('{works}') "
+         f"WHERE cohort_is_reliable AND window_is_complete AND ncs_4y IS NULL",
+         lambda v: v == 0, "a complete reliable cohort has a positive mean",
          metrics_tables),
 
         ("citations     stage 3 kept every counted citation",
-         f"SELECT (SELECT sum(citations) FROM read_parquet('{works}')) - "
-         f"(SELECT sum(c.citations) FROM read_parquet('{counts}') c "
+         f"SELECT (SELECT sum(citations_4y) + sum(cited_by_count_in_scope) "
+         f"        FROM read_parquet('{works}')) - "
+         f"(SELECT sum(c.citations_4y) + sum(c.cited_by_count_in_scope) "
+         f" FROM read_parquet('{counts}') c "
          f" JOIN read_parquet('{scope}') s ON s.work_id = c.work_id WHERE {scored})",
          lambda v: v == 0, "the left join onto the counts must lose nothing",
          built_tables),
@@ -128,7 +145,7 @@ def _checks(include_xpack, deep):
         citing = _universe(include_xpack)
         checks.append((
             "citations     agree with a full re-scan of the edge list",
-            f"SELECT (SELECT sum(citations) FROM read_parquet('{works}')) - ("
+            f"SELECT (SELECT sum(cited_by_count_in_scope) FROM read_parquet('{works}')) - ("
             f"  WITH cited AS (SELECT work_id FROM read_parquet('{scope}') WHERE {scored}),"
             f"       citer AS (SELECT work_id FROM read_parquet('{scope}') WHERE {citing})"
             f"  SELECT count(*) FROM read_parquet('{config.table_glob('edges')}') e"

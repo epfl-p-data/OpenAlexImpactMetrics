@@ -20,6 +20,10 @@
 #   primary_topic.subfield.id          VARCHAR   'https://openalex.org/subfields/1602' -> int
 #   institutions_distinct_count        INTEGER   fractional-counting denominator; >0 => has authorship
 #   referenced_works                   VARCHAR[] outgoing citations -> edges
+#   cited_by_count                     INTEGER   OpenAlex's own count, all citers, all time
+#   fwci                               DOUBLE    OpenAlex's FWCI, stored as openalex_fwci
+#   citation_normalized_percentile     STRUCT    value, is_in_top_1_percent, is_in_top_10_percent
+#                                                stored as openalex_* for comparison
 #
 # The resolve warehouse (build step 3). All of these are cheap except authorships,
 # which costs 14.9% of every file on its own -- see finding 2:
@@ -28,7 +32,7 @@
 #   open_access.oa_status              VARCHAR   -> works_attrs.oa_status (closed|green|...|diamond)
 #   open_access.is_oa                  BOOLEAN   -> works_attrs.is_oa
 #   funders[].id                       VARCHAR   -> work_funders
-#   authorships[].author.id            VARCHAR   -> work_authors
+#   authorships[].author.id            VARCHAR   -> work_authors, and author_ids on works_scope
 #   authorships[].author.orcid         VARCHAR   -> author_orcid, stored bare and lowercased
 #   authorships[].is_corresponding     BOOLEAN   -> the is_corresponding flags
 #   authorships[].institutions[].id    VARCHAR   -> work_institutions.is_direct

@@ -13,17 +13,17 @@ The scope is fixed when the data is built. The published download uses the rules
 
 ## The seven rules
 
-On the OpenAlex snapshot of 2026-09-23, 62,928,576 of 476,196,327 works pass all seven rules: 13.2%. The counts below are the works each rule removes. Most removed works fail several rules, so the counts do not add up.
+On the OpenAlex snapshot of 2026-10-14, 62,493,369 of 464,765,485 works pass all seven rules: 13.4%. The counts below are the works each rule removes. Most removed works fail several rules, so the counts do not add up.
 
 | Rule | Keeps | Removes |
 |---|---|---|
-| `is_core_or_proceedings` | Papers in a core journal or a conference proceedings | 369,158,255 (77.5%) |
-| `has_referenced_works` | Papers with a reference list | 351,985,465 (73.9%) |
-| `has_authorship` | Papers with at least one institutional affiliation | 299,435,006 (62.9%) |
-| `is_english` | Papers in English | 149,099,672 (31.3%) |
-| `has_subfield` | Papers with an OpenAlex subfield | 98,022,660 (20.6%) |
-| `is_not_paratext` | Papers that are not editorials, errata or tables of contents | 6,680,039 (1.4%) |
-| `is_not_retracted` | Papers that are not retracted | 136,894 (0.0%) |
+| `is_core_or_proceedings` | Papers in a core journal or a conference proceedings | 358,256,331 (77.1%) |
+| `has_referenced_works` | Papers with a reference list | 341,752,886 (73.5%) |
+| `has_authorship` | Papers with at least one institutional affiliation | 288,791,805 (62.1%) |
+| `is_english` | Papers in English | 147,293,274 (31.7%) |
+| `has_subfield` | Papers with an OpenAlex subfield | 47,318,460 (10.2%) |
+| `is_not_paratext` | Papers that are not editorials, errata or tables of contents | 6,680,889 (1.4%) |
+| `is_not_retracted` | Papers that are not retracted | 137,388 (0.0%) |
 
 ### `is_core_or_proceedings`
 
@@ -88,14 +88,24 @@ Removes retracted papers, as flagged by OpenAlex. It removes very few works; it 
 
 **The cohort.** A paper is always compared by subfield, publication year and venue type (journal or conference). These three are the definition of the scores, not scope rules. Removing `has_subfield` from the scope would not remove the subfield from the comparison.
 
-**xpack records.** Since the 2025-11-12 release, OpenAlex includes "xpack" records: 148,440,389 works on the 2026-09-23 snapshot, 31.2% of the corpus, and almost none of them pass the rules. They are left out of the comparison by a separate switch, not by a rule. `oam.build(include_xpack=True)` keeps them.
+**xpack records.** Since the 2025-11-12 release, OpenAlex includes "xpack" records: 137,776,075 works on the 2026-10-14 snapshot, 29.6% of the corpus, and almost none of them pass the rules. They are left out of the comparison by a separate switch, not by a rule. `oam.build(include_xpack=True)` keeps them.
 
 ## Change the scope
 
-1. Edit `SCOPE` in [`oam/config.py`](../oam/config.py). Each entry is a rule name, the SQL that decides it, and a short label used in reports. Add, remove or rewrite entries.
+1. Edit `SCOPE` in [`oam/config.py`](../oam/config.py). Each entry is a rule name, the SQL that decides it, and a short label used in reports. Add, remove or rewrite entries. You can also change it for one session, without editing the file:
+
+   ```python
+   import oam
+
+   oam.config.SCOPE.pop("is_english")   # or pop("has_authorship")
+   oam.build(reset=True)
+   ```
+
+   The change lasts until the session ends. Repeat it in every session that builds or resumes, including one that continues an interrupted build. A later session that does not repeat it sees the default rules and stops, rather than mixing the two.
+
 2. Rebuild the data from scratch with `oam.build(reset=True)`. It takes a few hours; see [Building the data](building.md).
 
-Nothing else needs editing: the build, `oam.explain()` and `oam.profile()` all read the rules from that dictionary.
+Nothing else needs editing: the build, `oam.explain()` and `oam.profile()` all read the rules from that dictionary. Dropping `has_authorship` keeps papers with no institution. Fractional counting leaves those papers out, because there is no institution count to divide by.
 
 The rebuild is required. The data stores only the papers and citations the old scope kept, so it cannot be widened or narrowed afterwards. If you edit the scope and call `oam.build()` without `reset=True`, it stops and lists what changed:
 
@@ -106,7 +116,7 @@ The rebuild is required. The data stores only the papers and citations the old s
   Rebuild from scratch:  oam.build(reset=True)    (re-reads 67 GiB)
 ```
 
-After the rebuild, `oam.profile()` shows how many papers each rule removes, and `oam.check()` confirms the data is consistent. Compare the in-scope total with 62,928,576 to see what your change did.
+After the rebuild, `oam.profile()` shows how many papers each rule removes, and `oam.check()` confirms the data is consistent. Compare the in-scope total with 62,493,369 to see what your change did.
 
 ### Writing a rule
 

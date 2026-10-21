@@ -48,6 +48,12 @@ COLUMNS = (
     "primary_location.source.is_core",
     "primary_location.raw_type",
     "primary_topic.subfield.id",
+    # OpenAlex's own citation count and scores, kept for comparison.
+    "cited_by_count",
+    "fwci",
+    "citation_normalized_percentile.value",
+    "citation_normalized_percentile.is_in_top_10_percent",
+    "citation_normalized_percentile.is_in_top_1_percent",
     # The resolve warehouse.
     "doi",
     "primary_location.source.id",
@@ -127,7 +133,7 @@ def read_part(source):
     retry in store.py can fall back to reading a downloaded copy.
 
     pre_buffer coalesces the selected column chunks into few large range requests
-    instead of one per chunk, which matters over S3: there are 22 leaves across every
+    instead of one per chunk, which matters over S3: the selected leaves sit in every
     row group, and asking for them one at a time spends the whole time in latency.
     """
     if source.startswith(("http://", "https://", "s3://")):

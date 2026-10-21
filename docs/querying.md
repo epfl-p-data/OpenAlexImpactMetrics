@@ -98,11 +98,12 @@ why.in_scope.value_counts()
 ```
 
 ```
-False    4824
-True     4613
+in_scope
+True     4508
+False    3255
 ```
 
-Why the 4,824 others are out. A paper can fail several rules, so the counts overlap:
+Why the 3,255 others are out. A paper can fail several rules, so the counts overlap:
 
 ```python
 why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
@@ -110,12 +111,11 @@ why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
 
 | Rule failed | Papers | Meaning |
 |---|---|---|
-| `is_core_or_proceedings` | 4,423 | Not in a core journal or a conference proceedings |
-| `has_referenced_works` | 3,554 | No reference list |
-| `has_subfield` | 1,075 | No subfield |
-| `is_english` | 210 | Not in English |
-| `is_not_paratext` | 23 | Editorial, erratum or similar |
-| `is_not_retracted` | 1 | Retracted |
+| `is_core_or_proceedings` | 2,868 | Not in a core journal or a conference proceedings |
+| `has_referenced_works` | 2,492 | No reference list |
+| `is_english` | 215 | Not in English |
+| `has_subfield` | 177 | No subfield |
+| `is_not_paratext` | 24 | Editorial, erratum or similar |
 
 `found` is false for an id the snapshot does not contain at all. The rules are described in [Scope](scope.md).
 
@@ -125,7 +125,7 @@ why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
 works = oam.get_metrics(ids)
 ```
 
-One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations`, `ncs`, `citation_normalized_percentile`, `decile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
+One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations_4y`, `ncs_4y`, `citation_normalized_percentile_4y`, `is_in_top_10_percent_4y`, `is_in_top_1_percent_4y`, `window_is_complete`, `cited_by_count_in_scope`, `cited_by_count_outside_scope`, `openalex_fwci`, `openalex_citation_normalized_percentile`, `openalex_is_in_top_10_percent`, `openalex_is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
 
 `oam.get_metrics(ids, explain=True)` adds the scope columns from `explain` to the same frame.
 
@@ -141,19 +141,22 @@ oam.aggregate(ids, by=["publication_year", "is_proceedings"])
 EPFL 2014, `by="is_proceedings"`:
 
 ```
- is_proceedings     P  P_weighted     TCS    MCS   MNCS  PP_top10  PP_top1
-          False  3675      3675.0  255413  69.50  2.063     22.34     3.46
-           True   764       764.0    9358  12.25  1.479     19.37     1.83
+ is_proceedings  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
+          False    3402   62851.0     18.47       2.25          23.49          3.79                True
+           True     749    2562.0      3.42       1.60          22.96          2.40                True
 ```
 
-`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `decile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `is_cited` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
+The 3,402 journal articles have an MNCS of 2.25. The 749 conference papers have an MNCS of 1.60.
+
+`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent_4y`, `is_in_top_1_percent_4y` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
+
+Every result carries `window_is_complete`. It is true when every paper in the group has had its four years, and it is not a `by` option: it describes the group, it does not split it.
 
 The other options:
 
 | Option | Default | Effect |
 |---|---|---|
-| `counting=` | `"full"` | `"frac"` weighs each paper by `1 / number of institutions`. See [counting](metrics.md#full-and-fractional-counting) |
-| `window=` | `None` | `3` counts only citations received within three years of publication |
+| `counting=` | `"full"` | `"frac"` weighs each paper by `1 / institutions_distinct_count`. See [counting](metrics.md#full-and-fractional-counting) |
 | `reliable_only=` | `True` | `False` also keeps papers in cohorts of fewer than 500 papers |
 
 ## Where the data lives

@@ -47,6 +47,14 @@ def read_connection():
 
 def require_tables(tables, purpose):
     """Raise if any table `purpose` reads is missing, naming how to get it."""
+    if config.BUNDLE_PATH.is_file():
+        installed = json.loads(config.BUNDLE_PATH.read_text()).get("format")
+        if installed != config.BUNDLE_FORMAT:
+            raise RuntimeError(
+                f"{purpose} found data format {installed} in {config.DATA_DIR}; "
+                f"this OAM reads format {config.BUNDLE_FORMAT}. "
+                f"oam.download() installs the current data."
+            )
     missing = [t for t in tables if table_size(config.table_dir(t)) == 0]
     if not missing:
         return
@@ -85,7 +93,7 @@ def _remove(path):
         path.unlink()
 
 
-def copy_parquet(con, select_sql, target, partition_by=None):
+def copy_parquet(con, select_sql, target, partition_by=None, metadata=None):
     """Write a query result to `target`, publishing it only once the write succeeds.
 
     A target ending in .parquet becomes one file; anything else becomes a directory
@@ -102,6 +110,11 @@ def copy_parquet(con, select_sql, target, partition_by=None):
 
     single_file = partition_by is None and target.suffix == ".parquet"
     options = ["FORMAT PARQUET", "COMPRESSION ZSTD"]
+    if metadata:
+        pairs = ", ".join(
+            f"{key}: '{str(value).replace(chr(39), chr(39) * 2)}'"
+            for key, value in metadata.items())
+        options.append(f"KV_METADATA {{{pairs}}}")
     if partition_by:
         options += [f"PARTITION_BY ({partition_by})", "OVERWRITE_OR_IGNORE"]
         destination = tmp

@@ -3,16 +3,17 @@
 Reads works_scope and edges from the store and materializes three tables under
 data/metrics/:
 
-  citation_counts/  citations received per in-scope work (open window and 3-year)
-  cohort_stats/        n_works, mean, median, stdev, p90, p99 per subfield x year x type
-  work_metrics/     per-work ncs, citation_normalized_percentile, decile, is_in_top_10_percent, is_in_top_1_percent
+  citation_counts/  in-scope citations, and the 4-year count without self-citations
+  cohort_stats/     cohort size, mean, p90 and p99 of the 4-year count
+  work_metrics/     per-work scores
 
-Stage 1 is the only expensive pass: 2.16B edges aggregated once. Stages 2 and 3 work
-on 62M rows and are cheap, so re-deriving metrics after a definition change never
-touches the edge list again. Each stage is committed atomically and checkpointed, so
-an interrupted run resumes at the stage it stopped on. The whole build is ~80s.
+Stage 1 is the expensive pass: the edge list aggregated once. Stages 2 and 3 work
+on the scored works and are cheap, so a definition change never touches the edge
+list again. Each stage is committed atomically and checkpointed, so an interrupted
+run resumes at the stage it stopped on.
 """
 
+import hashlib
 import json
 import shutil
 import time
@@ -30,28 +31,31 @@ def _tmp_dir():
     return config.METRICS_DIR / "_tmp"
 
 
-W = config.WINDOW_YEARS
+# Publication year and the three following years. The names say _4y; this constant
+# is what the comparisons use.
+_WITHIN = config.WINDOW_YEARS - 1
 
 
 # ---------------------------------------------------------------------------
-# Stage 1 — citations received per in-scope work
+# Stage 1 — citations received per scored work
 # ---------------------------------------------------------------------------
-# The citation universe is the in-scope population itself: a citation counts only if
-# the citing work is also in scope. edges already holds only in-scope citing works,
-# so the sole extra filter is the xpack exclusion (see build_universe).
+# A citation counts when the citing work is in scope. edges already holds only
+# those, and joining citers drops xpack citers. The 4-year count also drops a
+# self-citation, which is one where the two works share an author. The all-time
+# count keeps self-citations, because it is the in-scope part of OpenAlex's
+# cited_by_count.
 
-# The edges path is filled in at build time, not at import, so set_data_dir()
-# still points this query at the directory in use.
 CITATION_COUNTS_SQL = f"""
 SELECT
-    e.cited_id                                       AS work_id,
-    count(*)::INTEGER                                AS citations,
+    e.cited_id AS work_id,
+    count(*)::INTEGER AS cited_by_count_in_scope,
     count(*) FILTER (
-        WHERE e.citing_year <= u.publication_year + {W - 1}
-    )::INTEGER                                       AS citations_{W}y
+        WHERE e.citing_year <= u.publication_year + {_WITHIN}
+          AND NOT list_has_any(c.author_ids, u.author_ids)
+    )::INTEGER AS citations_4y
 FROM read_parquet('{{edges}}') e
 JOIN universe u ON u.work_id = e.cited_id
-{{citer_filter}}
+JOIN citers c ON c.work_id = e.citing_id
 GROUP BY 1
 """
 
@@ -59,34 +63,25 @@ GROUP BY 1
 # ---------------------------------------------------------------------------
 # Stage 2 — cohort statistics
 # ---------------------------------------------------------------------------
-# A cohort is subfield x publication_year x (journal | conference). Uncited works must
-# be present with a zero, so this reads the universe and left-joins the counts
-# rather than aggregating citation_counts directly.
+# A cohort is subfield x publication year x (journal | conference). Uncited works
+# must be present with a zero, so this reads the universe and left-joins the counts.
 
-BIN_STATS_SQL = f"""
+COHORT_STATS_SQL = """
 WITH works AS (
     SELECT u.publication_year, u.subfield, u.is_proceedings,
-           COALESCE(c.citations, 0)        AS citations,
-           COALESCE(c.citations_{W}y, 0)   AS citations_{W}y
+           COALESCE(c.citations_4y, 0) AS citations_4y
     FROM universe u
-    LEFT JOIN read_parquet('{{counts}}') c ON c.work_id = u.work_id
+    LEFT JOIN read_parquet('{counts}') c ON c.work_id = u.work_id
 )
 SELECT
     publication_year,
     subfield,
     is_proceedings,
-    count(*)::BIGINT                                  AS n_works,
-    count(*) FILTER (WHERE citations > 0)::BIGINT     AS n_cited_works,
-    avg(citations)                                    AS mean_citations,
-    median(citations)                                 AS median_citations,
-    stddev_samp(citations)                            AS stdev_citations,
-    quantile_cont(citations, 0.90)                    AS p90,
-    quantile_cont(citations, 0.99)                    AS p99,
-    max(citations)::INTEGER                           AS max_citations,
-    avg(citations_{W}y)                               AS mean_citations_{W}y,
-    quantile_cont(citations_{W}y, 0.90)               AS p90_{W}y,
-    quantile_cont(citations_{W}y, 0.99)               AS p99_{W}y,
-    (count(*) >= {{threshold}})                       AS is_reliable
+    count(*)::BIGINT AS n_works,
+    avg(citations_4y) AS mean_citations_4y,
+    quantile_cont(citations_4y, 0.90) AS p90_4y,
+    quantile_cont(citations_4y, 0.99) AS p99_4y,
+    (count(*) >= {threshold}) AS is_reliable
 FROM works
 GROUP BY 1, 2, 3
 """
@@ -95,16 +90,12 @@ GROUP BY 1, 2, 3
 # ---------------------------------------------------------------------------
 # Stage 3 — per-work metrics
 # ---------------------------------------------------------------------------
-# The definitions:
-#   ncs        = citations / cohort mean            -> averages to MNCS
-#   citation_normalized_percentile = CUME_DIST() ascending, 0..1
-#   decile     = NTILE(10) descending, 1 = top decile
-#   is_in_top_10_percent   = citations >= cohort p90            (>= keeps tied works, and integer
-#                                                 citation counts tie often, so the
-#                                                 world baseline lands above 10%)
-# Metrics are computed for every work, including those in cohorts too small to be
-# stable; cohort_is_reliable is exposed so a caller can filter rather than being handed
-# a NULL.
+# ncs_4y is citations divided by the cohort mean, and averages to 1.
+# The percentile is the mid-rank: papers below, plus half of the papers tied
+# with this one, over the cohort size. Tied papers get the same value, and an
+# uncited paper is not given zero.
+# Top 10% and top 1% require a citation. A cohort whose threshold is 0 would
+# otherwise flag every paper, including the uncited ones.
 
 WORK_METRICS_SQL = f"""
 WITH joined AS (
@@ -114,37 +105,24 @@ WITH joined AS (
         u.subfield,
         u.is_proceedings,
         u.institutions_distinct_count,
-        COALESCE(c.citations, 0)        AS citations,
-        COALESCE(c.citations_{W}y, 0)   AS citations_{W}y,
-        b.n_works                       AS cohort_n_works,
-        b.mean_citations,
-        b.median_citations,
-        b.stdev_citations,
-        b.p90,
-        b.p99,
-        b.mean_citations_{W}y,
-        b.p90_{W}y,
-        b.p99_{W}y,
-        b.is_reliable                   AS cohort_is_reliable
+        u.cited_by_count,
+        u.openalex_fwci,
+        u.openalex_citation_normalized_percentile,
+        u.openalex_is_in_top_10_percent,
+        u.openalex_is_in_top_1_percent,
+        COALESCE(c.citations_4y, 0) AS citations_4y,
+        COALESCE(c.cited_by_count_in_scope, 0) AS cited_by_count_in_scope,
+        b.n_works AS cohort_n_works,
+        b.mean_citations_4y,
+        b.p90_4y,
+        b.p99_4y,
+        b.is_reliable AS cohort_is_reliable
     FROM universe u
     LEFT JOIN read_parquet('{{counts}}') c ON c.work_id = u.work_id
     JOIN read_parquet('{{cohorts}}') b
       ON  b.publication_year = u.publication_year
-     AND b.subfield          = u.subfield
-     AND b.is_proceedings    = u.is_proceedings
-),
-ranked AS (
-    SELECT
-        j.*,
-        CUME_DIST() OVER (
-            PARTITION BY publication_year, subfield, is_proceedings
-            ORDER BY citations
-        ) AS citation_normalized_percentile,
-        NTILE(10) OVER (
-            PARTITION BY publication_year, subfield, is_proceedings
-            ORDER BY citations DESC
-        )::SMALLINT AS decile
-    FROM joined j
+     AND b.subfield = u.subfield
+     AND b.is_proceedings = u.is_proceedings
 )
 SELECT
     work_id,
@@ -152,25 +130,36 @@ SELECT
     subfield,
     is_proceedings,
     institutions_distinct_count,
-    citations,
-    citations_{W}y,
-    (citations > 0)                                                     AS is_cited,
-    CASE WHEN mean_citations   > 0 THEN citations / mean_citations   END AS ncs,
-    CASE WHEN median_citations > 0 THEN citations / median_citations END AS norm_vs_median,
-    CASE WHEN stdev_citations  > 0
-         THEN (citations - mean_citations) / stdev_citations          END AS zscore,
-    citation_normalized_percentile,
-    decile,
-    (citations >= p90)                                                  AS is_in_top_10_percent,
-    (citations >= p99)                                                  AS is_in_top_1_percent,
-    CASE WHEN mean_citations_{W}y > 0
-         THEN citations_{W}y / mean_citations_{W}y                    END AS ncs_{W}y,
-    (citations_{W}y >= p90_{W}y)                                        AS is_in_top_10_percent_{W}y,
-    (citations_{W}y >= p99_{W}y)                                        AS is_in_top_1_percent_{W}y,
+    citations_4y,
+    CASE WHEN mean_citations_4y > 0
+         THEN citations_4y / mean_citations_4y END AS ncs_4y,
+    (rank() OVER w - 1
+        + 0.5 * count(*) OVER (
+            PARTITION BY publication_year, subfield, is_proceedings, citations_4y)
+    ) / cohort_n_works AS citation_normalized_percentile_4y,
+    (citations_4y >= p90_4y AND citations_4y >= 1) AS is_in_top_10_percent_4y,
+    (citations_4y >= p99_4y AND citations_4y >= 1) AS is_in_top_1_percent_4y,
+    publication_year + {_WITHIN} < {{snapshot_year}} AS window_is_complete,
+    cited_by_count_in_scope,
+    greatest(cited_by_count - cited_by_count_in_scope, 0) AS cited_by_count_outside_scope,
+    openalex_fwci,
+    openalex_citation_normalized_percentile,
+    openalex_is_in_top_10_percent,
+    openalex_is_in_top_1_percent,
     cohort_n_works,
     cohort_is_reliable
-FROM ranked
+FROM joined
+WINDOW w AS (
+    PARTITION BY publication_year, subfield, is_proceedings
+    ORDER BY citations_4y
+)
 """
+
+
+def _definition_hash():
+    """Fingerprint of the three stage queries, so an edit rebuilds them."""
+    text = CITATION_COUNTS_SQL + COHORT_STATS_SQL + WORK_METRICS_SQL
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
 # ---------------------------------------------------------------------------
@@ -178,32 +167,37 @@ FROM ranked
 # ---------------------------------------------------------------------------
 
 def build_universe(con, include_xpack):
-    """The metric population: in-scope works, xpack excluded unless asked for.
+    """Scored works, and the in-scope works whose citations count.
 
-    xpack records arrived with the 2025-11-12 "walden" release and are a third of the
-    corpus, but only ~44k of them are in scope. They are excluded by default so cohort
-    denominators stay comparable with pre-walden snapshots.
-
-    A publication year is required because it is one of the three cohort dimensions: a
-    work without one cannot be normalised against a peer group.
+    xpack records arrived with the 2025-11-12 release and are a third of the
+    corpus, but almost none of them are in scope. They are excluded by default so
+    cohort denominators stay comparable with earlier snapshots. A work without a
+    publication year cannot be scored; it can still cite.
     """
     scope = config.table_glob("works_scope")
-    conditions = ["publication_year IS NOT NULL"]
-    if not include_xpack:
-        conditions.append("NOT is_xpac")
+    keep = "TRUE" if include_xpack else "NOT is_xpac"
     con.execute(f"""
         CREATE TEMP TABLE universe AS
-        SELECT work_id, publication_year, subfield, is_proceedings, institutions_distinct_count
+        SELECT work_id, publication_year, subfield, is_proceedings,
+               institutions_distinct_count,
+               COALESCE(author_ids, []) AS author_ids,
+               cited_by_count,
+               openalex_fwci, openalex_citation_normalized_percentile,
+               openalex_is_in_top_10_percent, openalex_is_in_top_1_percent
         FROM read_parquet('{scope}')
-        WHERE {' AND '.join(conditions)}
+        WHERE publication_year IS NOT NULL AND {keep}
     """)
     con.execute(f"""
-        CREATE TEMP TABLE excluded_citers AS
-        SELECT work_id FROM read_parquet('{scope}')
-        WHERE {'FALSE' if include_xpack else 'is_xpac'}
+        CREATE TEMP TABLE citers AS
+        SELECT work_id, COALESCE(author_ids, []) AS author_ids
+        FROM read_parquet('{scope}')
+        WHERE {keep}
     """)
-    return (con.execute("SELECT count(*) FROM universe").fetchone()[0],
-            con.execute("SELECT count(*) FROM excluded_citers").fetchone()[0])
+    excluded = "0" if include_xpack else f"""
+        (SELECT count(*) FROM read_parquet('{scope}') WHERE is_xpac)"""
+    return con.execute(f"""
+        SELECT (SELECT count(*) FROM universe), {excluded}
+    """).fetchone()
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +245,18 @@ def print_status():
 # Build
 # ---------------------------------------------------------------------------
 
+def _settings(include_xpack):
+    snapshot = json.loads(config.STORE_STATE_PATH.read_text())["date"]
+    return {
+        "include_xpack": include_xpack,
+        "reliability_threshold": config.RELIABILITY_THRESHOLD,
+        "window_years": config.WINDOW_YEARS,
+        "scope": config.scope_hash(config.built_scope()),
+        "snapshot": snapshot,
+        "definitions": _definition_hash(),
+    }, int(snapshot[:4])
+
+
 def build(stage=None, include_xpack=False):
     """Materialize any stage that is missing or built under a different config."""
     if not config.table_dir("works_scope").is_dir():
@@ -259,21 +265,16 @@ def build(stage=None, include_xpack=False):
 
     _tmp_dir().mkdir(parents=True, exist_ok=True)
     state = StageCheckpoint(_state_dir())
-    # The scope belongs here even though step 2 never applies it: works_scope and edges
-    # arrive already filtered, so a store rebuilt under different criteria must
-    # invalidate every layer derived from it.
-    settings = {
-        "include_xpack": include_xpack,
-        "reliability_threshold": config.RELIABILITY_THRESHOLD,
-        "window_years": W,
-        "scope": config.scope_hash(config.built_scope()),
-    }
+    # The scope belongs here even though step 2 never applies it: works_scope and
+    # edges arrive already filtered, so a store rebuilt under different criteria
+    # must invalidate every layer derived from it.
+    settings, snapshot_year = _settings(include_xpack)
 
     print("▶ Metric layers (build step 2)")
-    print(f"  store  : {config.STORE_DIR}")
-    print(f"  output : {config.METRICS_DIR}")
-    print(f"  xpack  : {'included' if include_xpack else 'excluded from the population'}")
-    print(f"  cohorts   : reliable at >= {config.RELIABILITY_THRESHOLD} works")
+    print(f"  store    : {config.STORE_DIR}")
+    print(f"  output   : {config.METRICS_DIR}")
+    print(f"  xpack    : {'included' if include_xpack else 'excluded from the population'}")
+    print(f"  cohorts  : reliable at >= {config.RELIABILITY_THRESHOLD} works")
 
     con = connect(_tmp_dir())
     t0 = time.time()
@@ -288,7 +289,7 @@ def build(stage=None, include_xpack=False):
     plan = [
         ("citation_counts", "aggregating the edge list", None),
         ("cohort_stats", "subfield x year x type", None),
-        ("work_metrics", "normalising every work in its cohort", "publication_year"),
+        ("work_metrics", "scoring every work in its cohort", "publication_year"),
     ]
 
     for n, (table, what, partition_by) in enumerate(plan, start=1):
@@ -300,17 +301,13 @@ def build(stage=None, include_xpack=False):
         print(f"\n▶ {header} — {what}", flush=True)
         t0 = time.time()
         if table == "citation_counts":
-            citer_filter = "" if include_xpack else (
-                "WHERE NOT EXISTS "
-                "(SELECT 1 FROM excluded_citers x WHERE x.work_id = e.citing_id)"
-            )
-            sql = CITATION_COUNTS_SQL.format(
-                citer_filter=citer_filter, edges=config.table_glob("edges"))
+            sql = CITATION_COUNTS_SQL.format(edges=config.table_glob("edges"))
         elif table == "cohort_stats":
-            sql = BIN_STATS_SQL.format(
+            sql = COHORT_STATS_SQL.format(
                 counts=counts, threshold=config.RELIABILITY_THRESHOLD)
         else:
-            sql = WORK_METRICS_SQL.format(counts=counts, cohorts=cohorts)
+            sql = WORK_METRICS_SQL.format(
+                counts=counts, cohorts=cohorts, snapshot_year=snapshot_year)
 
         rows = copy_parquet(con, sql, config.table_dir(table), partition_by)
         state.record(table, rows, time.time() - t0, settings)

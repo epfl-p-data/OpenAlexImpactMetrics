@@ -30,8 +30,8 @@ It runs three steps in order:
 | Step | What it does | Time |
 |---|---|---|
 | `"store"` | Reads the OpenAlex snapshot, applies the scope, keeps the citations between in-scope papers | Your bandwidth |
-| `"metrics"` | Computes citation counts, cohort averages and every paper's scores | About 2 minutes |
-| `"resolve"` | Builds the lookup tables `oam.resolve` uses | About 25 minutes |
+| `"metrics"` | Computes citation counts, cohort averages and every paper's scores | About 7 minutes |
+| `"resolve"` | Builds the lookup tables `oam.resolve` uses | About 6 minutes |
 
 To run one step on its own, pass `steps="metrics"`, or a list such as `steps=["metrics", "resolve"]`.
 
@@ -76,10 +76,14 @@ oam.build(reset=True, refresh_manifest=True)
 From a finished build, write the archive `oam.download()` installs:
 
 ```python
-oam.export("dist")    # dist/oam-<snapshot>.tar, 11.9 GiB for the 2026-10-14 snapshot
+oam.export("dist")
+# dist/oam-<snapshot>.tar              the tables oam.download() installs
+# dist/oam-metrics-<snapshot>.parquet  the scores alone, one sorted file
 ```
 
-Then upload the file to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the file name `oam.export` wrote: `oam.download()` finds the file whose name starts with `oam-` and ends with `.tar`, and reads the snapshot date from it.
+Then upload both files to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the names `oam.export` wrote: `oam.download()` finds the one file whose name starts with `oam-` and ends with `.tar`, and reads the snapshot date from it. The Parquet file is for people who only want the scores.
+
+The installed data has a format number, 3 in OAM 0.2. A directory written by an older OAM is refused: a query stops, and `oam.download()` fetches the current data even when the snapshot date matches. To keep using the 0.1 data, install OAM 0.1 and pin `record=23493155`.
 
 Nothing in OAM needs to change. `ZENODO_RECORD` in [`oam/config.py`](../oam/config.py) holds the record's all-versions id, `23493154`, which Zenodo resolves to the newest version, so every install of OAM downloads the new snapshot from then on.
 
@@ -119,7 +123,7 @@ The uploads themselves are done by hand.
 
 1. `oam.export("dist")` from a finished build, then install that archive into an empty directory and re-run the examples in the README.
 2. On the [Zenodo record](https://doi.org/10.5281/zenodo.23493154), click New version. Set the version and the collected date to the snapshot date, the publication date to today, and update the snapshot figures in the description.
-3. Upload `dist/oam-<snapshot>.tar`, keeping the file name `oam.export` wrote. The browser upload often stalls on a file this size; the API is more reliable. Create a token with the `deposit:write` and `deposit:actions` scopes, and run these with the draft's id from the address bar:
+3. Upload `dist/oam-<snapshot>.tar` and `dist/oam-metrics-<snapshot>.parquet`, keeping the names `oam.export` wrote. The browser upload often stalls on a file this size; the API is more reliable. Create a token with the `deposit:write` and `deposit:actions` scopes, and run these with the draft's id from the address bar, once per file:
 
    ```bash
    API=https://zenodo.org/api/records/<draft id>/draft/files
@@ -129,7 +133,7 @@ The uploads themselves are done by hand.
    curl -f -X POST -H "Authorization: Bearer $ZENODO_TOKEN" "$API/$NAME/commit"
    ```
 
-   The checksum Zenodo shows must equal `md5 dist/oam-<snapshot>.tar`. Then publish.
+   The checksum Zenodo shows must equal `md5 dist/$NAME`. Then publish.
 4. Add the snapshot to the README figures. `ZENODO_RECORD` does not change: it already points at the newest version.
 
 A new version of the package is only needed when the code changes. A new snapshot does not need one: `oam.download()` always fetches the latest version on Zenodo.
@@ -141,6 +145,6 @@ Publishing happens from GitHub, with no token stored in the repository. [PyPI](h
 For each release:
 
 1. Set `version` in [`pyproject.toml`](../pyproject.toml) and in [`CITATION.cff`](../CITATION.cff), and push.
-2. On GitHub, create a release named `v` followed by that version, for example `v0.1.0`.
+2. On GitHub, create a release named `v` followed by that version, for example `v0.2.0`.
 
 The [publish workflow](../.github/workflows/publish.yml) builds the package and uploads it to PyPI.

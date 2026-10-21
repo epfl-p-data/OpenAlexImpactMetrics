@@ -10,7 +10,7 @@ authors:
 repository-code: https://github.com/epfl-p-data/OpenAlexImpactMetrics
 url: https://github.com/epfl-p-data/OpenAlexImpactMetrics
 license: MIT
-version: 0.1.0
+version: 0.2.0
 identifiers:
   - type: doi
     value: 10.5281/zenodo.23493154

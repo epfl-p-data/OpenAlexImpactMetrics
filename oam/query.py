@@ -19,8 +19,9 @@ _WORK_ID = re.compile(r"(?:https?://openalex\.org/)?[Ww](\d+)\s*$|^(\d+)\s*$")
 
 # Columns a caller may group by. Restricted because the value is interpolated into
 # SQL, and because grouping by anything else is rarely meaningful.
-GROUPABLE = ("publication_year", "subfield", "is_proceedings", "institutions_distinct_count",
-             "decile", "is_in_top_10_percent", "is_in_top_1_percent", "is_cited", "cohort_is_reliable")
+GROUPABLE = ("publication_year", "subfield", "is_proceedings",
+             "institutions_distinct_count", "is_in_top_10_percent_4y",
+             "is_in_top_1_percent_4y", "cohort_is_reliable")
 
 
 def work_ids(ids):
@@ -65,51 +66,40 @@ def _register(con, ids):
     con.register("_ids", pd.DataFrame({"work_id": pd.array(work_ids(ids), dtype="int64")}))
 
 
-def _window_columns(window):
-    """Which materialized columns back citations/ncs/is_in_top_10_percent/is_in_top_1_percent."""
-    if window is None:
-        return "citations", "ncs", "is_in_top_10_percent", "is_in_top_1_percent"
-    if window != config.WINDOW_YEARS:
-        raise ValueError(
-            f"window={window} is not materialized; the build stores an open window "
-            f"and a {config.WINDOW_YEARS}-year window"
-        )
-    w = config.WINDOW_YEARS
-    return f"citations_{w}y", f"ncs_{w}y", f"is_in_top_10_percent_{w}y", f"is_in_top_1_percent_{w}y"
-
-
-def get_metrics(ids, window=None, explain=False):
+def get_metrics(ids, explain=False):
     """Per-work metrics, one row per distinct input id.
 
     Ids that are not in the metric population come back with in_scope = False and
     null metrics rather than being dropped, so the result always lines up with the
-    input. Pass explain=True to also learn why: it adds `found` and one column per scope
-    criterion, at the cost of scanning works_status (510M rows) instead of only
-    work_metrics.
-
-    window=3 swaps in the fixed 3-year citation window everywhere.
+    input. Pass explain=True to also learn why: it adds `found` and one column per
+    scope criterion, at the cost of scanning works_status instead of only work_metrics.
     """
     require_tables(("work_metrics",), "get_metrics()")
     if explain:
         require_tables(("works_status",), "get_metrics(explain=True)")
-    citations, ncs, top10, top1 = _window_columns(window)
     con = connection()
     _register(con, ids)
 
     select = f"""
         SELECT
             i.work_id,
-            m.work_id IS NOT NULL   AS in_scope,
+            m.work_id IS NOT NULL AS in_scope,
             m.publication_year,
             m.subfield,
             m.is_proceedings,
             m.institutions_distinct_count,
-            m.{citations}           AS citations,
-            m.{ncs}                 AS ncs,
-            m.citation_normalized_percentile,
-            m.decile,
-            m.{top10}               AS is_in_top_10_percent,
-            m.{top1}                AS is_in_top_1_percent,
+            m.citations_4y,
+            m.ncs_4y,
+            m.citation_normalized_percentile_4y,
+            m.is_in_top_10_percent_4y,
+            m.is_in_top_1_percent_4y,
+            m.window_is_complete,
+            m.cited_by_count_in_scope,
+            m.cited_by_count_outside_scope,
+            m.openalex_fwci,
+            m.openalex_citation_normalized_percentile,
+            m.openalex_is_in_top_10_percent,
+            m.openalex_is_in_top_1_percent,
             m.cohort_n_works,
             m.cohort_is_reliable
         FROM _ids i
@@ -167,21 +157,21 @@ def _criteria(con):
     """).fetchdf()
 
 
-def aggregate(ids, by="publication_year", counting="full", window=None,
-              reliable_only=True):
+def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
     """Citation-impact indicators for a set of works.
 
     by          column name, list of column names, or None for a single row
-    counting    "full" gives every work weight 1; "frac" weights it 1/institutions_distinct_count,
-                so a work shared with nine other institutions counts as a tenth
-    window      None for the open citation window, 3 for the fixed 3-year one
+    counting    "full" gives every work weight 1; "frac" weights it by
+                1/institutions_distinct_count, so a work shared with nine other
+                institutions counts as a tenth
     reliable_only
                 keep only works whose cohort has at least
                 config.RELIABILITY_THRESHOLD works; small cohorts give unstable means
 
-    Returns P (works), P_weighted, TCS, MCS, MNCS, PP_top10 and PP_top1 per group.
-    Ids that are absent or out of scope contribute nothing; compare P against the
-    number of ids you passed to see the coverage.
+    Every column is named for the counting, and P_full is always the number of
+    works. window_is_complete is true when every work in the group has had its
+    four years. Ids that are absent or out of scope contribute nothing; compare
+    P_full against the number of ids you passed to see the coverage.
     """
     require_tables(("work_metrics",), "aggregate()")
     if counting not in ("full", "frac"):
@@ -192,7 +182,6 @@ def aggregate(ids, by="publication_year", counting="full", window=None,
     if unknown:
         raise ValueError(f"cannot group by {unknown}; choose from {list(GROUPABLE)}")
 
-    citations, ncs, top10, top1 = _window_columns(window)
     weight = "1.0" if counting == "full" else "1.0 / nullif(institutions_distinct_count, 0)"
     filters = ["m.work_id IS NOT NULL"]
     if reliable_only:
@@ -201,6 +190,7 @@ def aggregate(ids, by="publication_year", counting="full", window=None,
         filters.append("m.institutions_distinct_count > 0")
 
     selected = "".join(f"{g}, " for g in groups)
+    weighted = "sum(w) AS P_frac," if counting == "frac" else ""
     grouping = f"GROUP BY {', '.join(str(i + 1) for i in range(len(groups)))}" if groups else ""
     ordering = f"ORDER BY {', '.join(str(i + 1) for i in range(len(groups)))}" if groups else ""
 
@@ -216,13 +206,14 @@ def aggregate(ids, by="publication_year", counting="full", window=None,
         )
         SELECT
             {selected}
-            count(*)                                   AS P,
-            sum(w)                                     AS P_weighted,
-            sum({citations} * w)                       AS TCS,
-            sum({citations} * w) / sum(w)              AS MCS,
-            sum({ncs} * w) / sum(w)                    AS MNCS,
-            100.0 * sum({top10}::INT * w) / sum(w)     AS PP_top10,
-            100.0 * sum({top1}::INT * w) / sum(w)      AS PP_top1
+            count(*) AS P_full,
+            {weighted}
+            sum(citations_4y * w) AS TCS_{counting},
+            sum(citations_4y * w) / sum(w) AS MCS_{counting},
+            sum(ncs_4y * w) / sum(w) AS MNCS_{counting},
+            100.0 * sum(is_in_top_10_percent_4y::INT * w) / sum(w) AS PP_top10_{counting},
+            100.0 * sum(is_in_top_1_percent_4y::INT * w) / sum(w) AS PP_top1_{counting},
+            bool_and(window_is_complete) AS window_is_complete
         FROM works
         {grouping}
         {ordering}

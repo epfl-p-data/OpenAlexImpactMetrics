@@ -90,6 +90,11 @@ DIMENSIONS_SQL = f"""
         COALESCE(institutions_distinct_count, 0) AS institutions_distinct_count,
         type AS work_type,
         COALESCE(is_xpac, FALSE) AS is_xpac,
+        COALESCE(cited_by_count, 0)::INTEGER AS cited_by_count,
+        fwci AS openalex_fwci,
+        citation_normalized_percentile.value AS openalex_citation_normalized_percentile,
+        citation_normalized_percentile.is_in_top_10_percent AS openalex_is_in_top_10_percent,
+        citation_normalized_percentile.is_in_top_1_percent AS openalex_is_in_top_1_percent,
         list_transform(
             COALESCE(referenced_works, []),
             x -> TRY_CAST(substr(x, 23) AS BIGINT)
@@ -182,27 +187,33 @@ FROM raw
 """
 
 
-SELECTS = {
-    "works_status": f"""
-        SELECT work_id, publication_year,
-               {", ".join(config.SCOPE)},
-               in_scope, is_xpac
-        FROM src
-    """,
-    "works_scope": """
-        SELECT work_id, publication_year, subfield, is_proceedings, is_core,
-               institutions_distinct_count, work_type, is_xpac
-        FROM src
-        WHERE in_scope
-    """,
-    # Citations are kept only for in-scope citing works, matching the citation
-    # universe. citing_year is denormalized so fixed windows need no join later.
-    "edges": """
-        SELECT work_id AS citing_id, unnest(refs) AS cited_id, publication_year AS citing_year
-        FROM src
-        WHERE in_scope
-    """,
-}
+def selects():
+    """SQL for the three store tables. Built on call, so an edited SCOPE is used."""
+    return {
+        "works_status": f"""
+            SELECT work_id, publication_year,
+                   {", ".join(config.SCOPE)},
+                   in_scope, is_xpac
+            FROM src
+        """,
+        "works_scope": """
+            SELECT work_id, publication_year, subfield, is_proceedings, is_core,
+                   institutions_distinct_count, author_ids, cited_by_count,
+                   openalex_fwci, openalex_citation_normalized_percentile,
+                   openalex_is_in_top_10_percent, openalex_is_in_top_1_percent,
+                   work_type, is_xpac
+            FROM src
+            WHERE in_scope
+        """,
+        # Citations are kept only for in-scope citing works. citing_year is stored
+        # on the edge so the window needs no join later.
+        "edges": """
+            SELECT work_id AS citing_id, unnest(refs) AS cited_id,
+                   publication_year AS citing_year
+            FROM src
+            WHERE in_scope
+        """,
+    }
 
 
 # The resolve tables, unlike the three above, cover the whole corpus rather than the
@@ -385,7 +396,7 @@ def process_file(entry, expected_records):
 
             counts = {
                 table: copy_parquet(con, sql, _output_path(table, entry["key"]))
-                for table, sql in {**SELECTS, **RESOLVE_SELECTS}.items()
+                for table, sql in {**selects(), **RESOLVE_SELECTS}.items()
             }
             con.execute("DROP TABLE IF EXISTS src;")
 

@@ -91,10 +91,12 @@ DIM_TABLES = ("dim_topics", "dim_institutions", "dim_sources", "dim_funders")
 # Bumped whenever step 1 starts writing a table or column it did not write before. An
 # existing store cannot be topped up across such a change, so the build refuses to
 # resume and asks for a reset, exactly as it does for a new snapshot or a new scope.
-# Downloaded bundles carry the same number: a bundle from an older projection is
-# refused rather than queried as if it had the current columns.
-PROJECTION_VERSION = 2
-BUNDLE_FORMAT = PROJECTION_VERSION
+PROJECTION_VERSION = 3
+
+# Bumped whenever a table oam.download() installs changes. That is not always a store
+# change: the metric columns ship, the edge list does not. A bundle of another format
+# is refused rather than queried as if it had the current columns.
+BUNDLE_FORMAT = 3
 
 # The Zenodo record download() fetches from. This is the all-versions record, which
 # Zenodo resolves to its newest version, so a new snapshot needs only a new version
@@ -273,9 +275,9 @@ def built_criteria():
 # cohort_is_reliable to drop them.
 RELIABILITY_THRESHOLD = 500
 
-# Citations accrued within this many years of publication, for the fixed-window
-# variant. Counted during the build because revisiting the edge list is expensive.
-WINDOW_YEARS = 3
+# Citations in the publication year and the three following years, the window
+# OpenAlex and Scopus use for the FWCI. Counted during the build.
+WINDOW_YEARS = 4
 
 
 # ---------------------------------------------------------------------------
