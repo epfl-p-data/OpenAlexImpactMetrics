@@ -19,8 +19,8 @@ _WORK_ID = re.compile(r"(?:https?://openalex\.org/)?[Ww](\d+)\s*$|^(\d+)\s*$")
 
 # Columns a caller may group by. Restricted because the value is interpolated into
 # SQL, and because grouping by anything else is rarely meaningful.
-GROUPABLE = ("publication_year", "subfield", "is_proceedings", "n_institutions",
-             "decile", "is_top10", "is_top1", "is_cited", "bin_is_reliable")
+GROUPABLE = ("publication_year", "subfield", "is_proceedings", "institutions_distinct_count",
+             "decile", "is_in_top_10_percent", "is_in_top_1_percent", "is_cited", "cohort_is_reliable")
 
 
 def work_ids(ids):
@@ -66,16 +66,16 @@ def _register(con, ids):
 
 
 def _window_columns(window):
-    """Which materialized columns back citations/ncs/is_top10/is_top1."""
+    """Which materialized columns back citations/ncs/is_in_top_10_percent/is_in_top_1_percent."""
     if window is None:
-        return "citations", "ncs", "is_top10", "is_top1"
+        return "citations", "ncs", "is_in_top_10_percent", "is_in_top_1_percent"
     if window != config.WINDOW_YEARS:
         raise ValueError(
             f"window={window} is not materialized; the build stores an open window "
             f"and a {config.WINDOW_YEARS}-year window"
         )
     w = config.WINDOW_YEARS
-    return f"citations_{w}y", f"ncs_{w}y", f"is_top10_{w}y", f"is_top1_{w}y"
+    return f"citations_{w}y", f"ncs_{w}y", f"is_in_top_10_percent_{w}y", f"is_in_top_1_percent_{w}y"
 
 
 def get_metrics(ids, window=None, explain=False):
@@ -103,15 +103,15 @@ def get_metrics(ids, window=None, explain=False):
             m.publication_year,
             m.subfield,
             m.is_proceedings,
-            m.n_institutions,
+            m.institutions_distinct_count,
             m.{citations}           AS citations,
             m.{ncs}                 AS ncs,
-            m.percentile,
+            m.citation_normalized_percentile,
             m.decile,
-            m.{top10}               AS is_top10,
-            m.{top1}                AS is_top1,
-            m.bin_n_works,
-            m.bin_is_reliable
+            m.{top10}               AS is_in_top_10_percent,
+            m.{top1}                AS is_in_top_1_percent,
+            m.cohort_n_works,
+            m.cohort_is_reliable
         FROM _ids i
         LEFT JOIN read_parquet('{config.table_glob("work_metrics")}') m
                ON m.work_id = i.work_id
@@ -172,12 +172,12 @@ def aggregate(ids, by="publication_year", counting="full", window=None,
     """Citation-impact indicators for a set of works.
 
     by          column name, list of column names, or None for a single row
-    counting    "full" gives every work weight 1; "frac" weights it 1/n_institutions,
+    counting    "full" gives every work weight 1; "frac" weights it 1/institutions_distinct_count,
                 so a work shared with nine other institutions counts as a tenth
     window      None for the open citation window, 3 for the fixed 3-year one
     reliable_only
-                keep only works whose bin has at least
-                config.RELIABILITY_THRESHOLD works; small bins give unstable means
+                keep only works whose cohort has at least
+                config.RELIABILITY_THRESHOLD works; small cohorts give unstable means
 
     Returns P (works), P_weighted, TCS, MCS, MNCS, PP_top10 and PP_top1 per group.
     Ids that are absent or out of scope contribute nothing; compare P against the
@@ -193,12 +193,12 @@ def aggregate(ids, by="publication_year", counting="full", window=None,
         raise ValueError(f"cannot group by {unknown}; choose from {list(GROUPABLE)}")
 
     citations, ncs, top10, top1 = _window_columns(window)
-    weight = "1.0" if counting == "full" else "1.0 / nullif(n_institutions, 0)"
+    weight = "1.0" if counting == "full" else "1.0 / nullif(institutions_distinct_count, 0)"
     filters = ["m.work_id IS NOT NULL"]
     if reliable_only:
-        filters.append("m.bin_is_reliable")
+        filters.append("m.cohort_is_reliable")
     if counting == "frac":
-        filters.append("m.n_institutions > 0")
+        filters.append("m.institutions_distinct_count > 0")
 
     selected = "".join(f"{g}, " for g in groups)
     grouping = f"GROUP BY {', '.join(str(i + 1) for i in range(len(groups)))}" if groups else ""

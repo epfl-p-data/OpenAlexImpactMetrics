@@ -35,7 +35,7 @@ from . import config
 # Grouped the way docs/openalex-works-schema.txt documents them.
 
 COLUMNS = (
-    # Identity, scope and the bin dimensions.
+    # Identity, scope and the cohort dimensions.
     "id",
     "publication_year",
     "language",

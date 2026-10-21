@@ -66,7 +66,7 @@ English-language papers only. This is the rule most worth reconsidering if the p
 TRY_CAST(str_split(primary_topic.subfield.id, '/')[-1] AS INTEGER) IS NOT NULL
 ```
 
-The subfield defines the bin a paper is compared with, so a paper without one cannot be scored. The rule tests the parsed number rather than only the presence of an id, so a malformed id cannot enter with an empty bin.
+The subfield defines the cohort a paper is compared with, so a paper without one cannot be scored. The rule tests the parsed number rather than only the presence of an id, so a malformed id cannot enter with an empty cohort.
 
 ### `is_not_paratext`
 
@@ -86,7 +86,7 @@ Removes retracted papers, as flagged by OpenAlex. It removes very few works; it 
 
 ## What is not configurable
 
-**The bin.** A paper is always compared by subfield, publication year and venue type (journal or conference). These three are the definition of the scores, not scope rules. Removing `has_subfield` from the scope would not remove the subfield from the comparison.
+**The cohort.** A paper is always compared by subfield, publication year and venue type (journal or conference). These three are the definition of the scores, not scope rules. Removing `has_subfield` from the scope would not remove the subfield from the comparison.
 
 **xpack records.** Since the 2025-11-12 release, OpenAlex includes "xpack" records: 148,440,389 works on the 2026-09-23 snapshot, 31.2% of the corpus, and almost none of them pass the rules. They are left out of the comparison by a separate switch, not by a rule. `oam.build(include_xpack=True)` keeps them.
 

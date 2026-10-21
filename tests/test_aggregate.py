@@ -1,6 +1,6 @@
 """Set-level indicators, full and fractional, against the same hand values.
 
-The reliable bin is the 2014 journal bin: citations 3, 2, 1, 0 and weights
+The reliable cohort is the 2014 journal cohort: citations 3, 2, 1, 0 and weights
 1, 1/2, 1, 1/4. Only the paper with 3 citations is in the top 10% and the top 1%.
 """
 

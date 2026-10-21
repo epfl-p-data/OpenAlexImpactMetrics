@@ -76,7 +76,7 @@ def set_data_dir(path):
 _apply_data_dir(_default_data_dir())
 
 STORE_TABLES = ("works_status", "works_scope", "edges")
-METRIC_TABLES = ("citation_counts", "bin_stats", "work_metrics")
+METRIC_TABLES = ("citation_counts", "cohort_stats", "work_metrics")
 
 # The resolve warehouse: query -> work ids without the OpenAlex API. The fact tables
 # cover every work in the corpus, in scope or not, and each is sorted by the key it is
@@ -194,10 +194,10 @@ ORCID_SQL = "nullif(regexp_replace(lower({}), '^https?://orcid\\.org/', ''), '')
 #     which supplies both has_authorship and the fractional-counting denominator without
 #     ever reading the large authorships column.
 
-# Shared with the bin dimensions store.py derives, so that a criterion can never
+# Shared with the cohort dimensions store.py derives, so that a criterion can never
 # disagree with the column built from the same field. has_subfield in particular has to
 # test the *parsed* subfield: a work whose subfield id failed TRY_CAST would otherwise
-# be in scope carrying a NULL bin dimension.
+# be in scope carrying a NULL cohort dimension.
 SUBFIELD_SQL = "TRY_CAST(str_split(primary_topic.subfield.id, '/')[-1] AS INTEGER)"
 IS_CORE_SQL = "COALESCE(primary_location.source.is_core, FALSE)"
 IS_PROCEEDINGS_SQL = "COALESCE(primary_location.raw_type = 'proceedings-article', FALSE)"
@@ -268,9 +268,9 @@ def built_criteria():
 # Metric definitions
 # ---------------------------------------------------------------------------
 
-# Bins below this many works give unstable means and percentiles. OAM computes the
-# metrics anyway and flags the bin, so a caller can decide; filter on
-# bin_is_reliable to drop them.
+# Cohorts below this many works give unstable means and percentiles. OAM computes the
+# metrics anyway and flags the cohort, so a caller can decide; filter on
+# cohort_is_reliable to drop them.
 RELIABILITY_THRESHOLD = 500
 
 # Citations accrued within this many years of publication, for the fixed-window

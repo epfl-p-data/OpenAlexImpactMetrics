@@ -1,6 +1,6 @@
 """A synthetic store, small enough to build the real metric tables in seconds.
 
-Two bins, so the scores can be checked by hand:
+Two cohorts, so the scores can be checked by hand:
 
   2014, subfield 11, journal, four works, citations 3, 2, 1 and 0.
       mean 1.5. Reliable when the threshold is 3.
@@ -90,7 +90,7 @@ def _write_store(data):
     con.execute("""
         CREATE TABLE works (
             work_id BIGINT, publication_year INTEGER, subfield INTEGER,
-            is_proceedings BOOLEAN, n_institutions INTEGER,
+            is_proceedings BOOLEAN, institutions_distinct_count INTEGER,
             is_xpac BOOLEAN, is_english BOOLEAN
         )
     """)
@@ -103,7 +103,7 @@ def _write_store(data):
     """, config.table_dir("works_status") / "part-0.parquet")
     _copy(con, f"""
         SELECT work_id, publication_year, subfield, is_proceedings,
-               TRUE AS is_core, n_institutions, 'article' AS work_type, is_xpac
+               TRUE AS is_core, institutions_distinct_count, 'article' AS work_type, is_xpac
         FROM works
         WHERE work_id IN ({", ".join(str(i) for i in sorted(in_scope_ids))})
     """, config.table_dir("works_scope") / "part-0.parquet")

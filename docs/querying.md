@@ -125,7 +125,7 @@ why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
 works = oam.get_metrics(ids)
 ```
 
-One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `n_institutions`, `citations`, `ncs`, `percentile`, `decile`, `is_top10`, `is_top1`, `bin_n_works` and `bin_is_reliable`.
+One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations`, `ncs`, `citation_normalized_percentile`, `decile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
 
 `oam.get_metrics(ids, explain=True)` adds the scope columns from `explain` to the same frame.
 
@@ -146,7 +146,7 @@ EPFL 2014, `by="is_proceedings"`:
            True   764       764.0    9358  12.25  1.479     19.37     1.83
 ```
 
-`by` accepts `publication_year`, `subfield`, `is_proceedings`, `n_institutions`, `decile`, `is_top10`, `is_top1`, `is_cited` and `bin_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
+`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `decile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `is_cited` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
 
 The other options:
 
@@ -154,7 +154,7 @@ The other options:
 |---|---|---|
 | `counting=` | `"full"` | `"frac"` weighs each paper by `1 / number of institutions`. See [counting](metrics.md#full-and-fractional-counting) |
 | `window=` | `None` | `3` counts only citations received within three years of publication |
-| `reliable_only=` | `True` | `False` also keeps papers in bins of fewer than 500 papers |
+| `reliable_only=` | `True` | `False` also keeps papers in cohorts of fewer than 500 papers |
 
 ## Where the data lives
 

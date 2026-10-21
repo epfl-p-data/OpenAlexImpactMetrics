@@ -37,7 +37,7 @@ def _universe(include_xpack):
 
 def _checks(include_xpack, deep):
     status, scope = config.table_glob("works_status"), config.table_glob("works_scope")
-    counts, bins = config.table_glob("citation_counts"), config.table_glob("bin_stats")
+    counts, cohorts = config.table_glob("citation_counts"), config.table_glob("cohort_stats")
     works = config.table_glob("work_metrics")
     scored = f"{_universe(include_xpack)} AND publication_year IS NOT NULL"
 
@@ -78,19 +78,19 @@ def _checks(include_xpack, deep):
 
         ("works_scope   every work has a subfield",
          f"SELECT count(*) FROM read_parquet('{scope}') WHERE subfield IS NULL",
-         lambda v: v == 0, "subfield is a bin dimension and is a scope criterion",
+         lambda v: v == 0, "subfield is a cohort dimension and is a scope criterion",
          scope_tables),
 
-        ("bin_stats     statistics are ordered",
-         f"SELECT count(*) FROM read_parquet('{bins}') "
+        ("cohort_stats     statistics are ordered",
+         f"SELECT count(*) FROM read_parquet('{cohorts}') "
          f"WHERE n_works <= 0 OR median_citations > p90 OR p90 > p99 OR mean_citations < 0",
-         lambda v: v == 0, "median <= p90 <= p99 must hold in every bin",
-         ("bin_stats",)),
+         lambda v: v == 0, "median <= p90 <= p99 must hold in every cohort",
+         ("cohort_stats",)),
 
         ("work_metrics  one row per scored work",
          f"SELECT (SELECT count(*) FROM read_parquet('{works}')) "
          f"- (SELECT count(*) FROM read_parquet('{scope}') WHERE {scored})",
-         lambda v: v == 0, "the bin join must not drop or duplicate anyone",
+         lambda v: v == 0, "the cohort join must not drop or duplicate anyone",
          ("work_metrics", "works_scope")),
 
         ("work_metrics  no duplicate works",
@@ -100,18 +100,18 @@ def _checks(include_xpack, deep):
 
         ("work_metrics  world MNCS is 1.0",
          f"SELECT avg(ncs) FROM read_parquet('{works}')",
-         lambda v: abs(v - 1.0) <= 0.001, "a mean of ratios to bin means can only be 1",
+         lambda v: abs(v - 1.0) <= 0.001, "a mean of ratios to cohort means can only be 1",
          metrics_tables),
 
-        ("work_metrics  percentile and decile in range",
+        ("work_metrics  citation_normalized_percentile and decile in range",
          f"SELECT count(*) FROM read_parquet('{works}') "
-         f"WHERE percentile <= 0 OR percentile > 1 OR decile NOT BETWEEN 1 AND 10",
+         f"WHERE citation_normalized_percentile <= 0 OR citation_normalized_percentile > 1 OR decile NOT BETWEEN 1 AND 10",
          lambda v: v == 0, "CUME_DIST is (0,1] and NTILE(10) is 1..10",
          metrics_tables),
 
-        ("work_metrics  scored works in reliable bins have an ncs",
-         f"SELECT count(*) FROM read_parquet('{works}') WHERE bin_is_reliable AND ncs IS NULL",
-         lambda v: v == 0, "a reliable bin has a positive mean, so ncs must exist",
+        ("work_metrics  scored works in reliable cohorts have an ncs",
+         f"SELECT count(*) FROM read_parquet('{works}') WHERE cohort_is_reliable AND ncs IS NULL",
+         lambda v: v == 0, "a reliable cohort has a positive mean, so ncs must exist",
          metrics_tables),
 
         ("citations     stage 3 kept every counted citation",

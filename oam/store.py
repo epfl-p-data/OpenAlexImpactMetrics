@@ -5,7 +5,7 @@ the columns OAM needs (~10% of each file), and reduces each one into three Parqu
 tables under data/store/:
 
   works_status/  one row per work in OpenAlex, with one flag per scope criterion
-  works_scope/   one row per in-scope work, with its bin dimensions
+  works_scope/   one row per in-scope work, with its cohort dimensions
   edges/         one row per citation made by an in-scope work
 
 The same pass also writes the resolve warehouse rows — every work's attributes, and
@@ -68,17 +68,17 @@ def _tmp_dir():
 # ---------------------------------------------------------------------------
 # Projection
 # ---------------------------------------------------------------------------
-# One SELECT over each source file yields everything the three tables need: the bin
+# One SELECT over each source file yields everything the three tables need: the cohort
 # dimensions, the reference list, and one boolean per criterion in config.SCOPE.
 #
-# The bin dimensions below are fixed, unlike the criteria: subfield, publication year
+# The cohort dimensions below are fixed, unlike the criteria: subfield, publication year
 # and journal-versus-conference are the metric definition itself, so they are derived
 # whether or not the matching criterion is kept. They reuse config's SQL fragments so a
 # dimension and the criterion built on it cannot drift apart.
 #
 # is_xpac is carried through but is not a criterion. The 2025-11-12 "walden" release
 # folded xpack records into works; they are a third of the corpus and virtually never in
-# scope, so the flag lets step 2 exclude them from bin denominators without rebuilding
+# scope, so the flag lets step 2 exclude them from cohort denominators without rebuilding
 # the store.
 
 DIMENSIONS_SQL = f"""
@@ -87,7 +87,7 @@ DIMENSIONS_SQL = f"""
         {config.SUBFIELD_SQL} AS subfield,
         {config.IS_CORE_SQL} AS is_core,
         {config.IS_PROCEEDINGS_SQL} AS is_proceedings,
-        COALESCE(institutions_distinct_count, 0) AS n_institutions,
+        COALESCE(institutions_distinct_count, 0) AS institutions_distinct_count,
         type AS work_type,
         COALESCE(is_xpac, FALSE) AS is_xpac,
         list_transform(
@@ -191,7 +191,7 @@ SELECTS = {
     """,
     "works_scope": """
         SELECT work_id, publication_year, subfield, is_proceedings, is_core,
-               n_institutions, work_type, is_xpac
+               institutions_distinct_count, work_type, is_xpac
         FROM src
         WHERE in_scope
     """,

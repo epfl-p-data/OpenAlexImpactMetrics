@@ -71,7 +71,7 @@ def _scalar(con, sql):
 def profile():
     """Descriptive statistics for whatever is currently built."""
     status, scope = config.table_glob("works_status"), config.table_glob("works_scope")
-    works, bins = config.table_glob("work_metrics"), config.table_glob("bin_stats")
+    works, cohorts = config.table_glob("work_metrics"), config.table_glob("cohort_stats")
     con = connect(config.DATA_DIR / "_tmp")
     out = {}
 
@@ -91,11 +91,11 @@ def profile():
         out["funnel"] = sorted(zip((label for _, label in criteria), row[3:]),
                                key=lambda kv: -kv[1])
 
-    if config.table_dir("bin_stats").is_dir():
-        out["bins"] = _scalar(con, f"""
+    if config.table_dir("cohort_stats").is_dir():
+        out["cohorts"] = _scalar(con, f"""
             SELECT count(*), count(*) FILTER (WHERE is_reliable),
                    count(DISTINCT subfield), min(publication_year), max(publication_year)
-            FROM read_parquet('{bins}')""")
+            FROM read_parquet('{cohorts}')""")
 
     if config.table_dir("work_metrics").is_dir():
         out["citations"] = _scalar(con, f"""
@@ -104,9 +104,9 @@ def profile():
                    quantile_cont(citations, 0.99), max(citations)
             FROM read_parquet('{works}')""")
         out["world"] = _scalar(con, f"""
-            SELECT count(*), avg(ncs), 100.0 * avg(is_top10::INT), 100.0 * avg(is_top1::INT)
+            SELECT count(*), avg(ncs), 100.0 * avg(is_in_top_10_percent::INT), 100.0 * avg(is_in_top_1_percent::INT)
             FROM read_parquet('{works}')
-            WHERE publication_year BETWEEN 2014 AND 2023 AND bin_is_reliable""")
+            WHERE publication_year BETWEEN 2014 AND 2023 AND cohort_is_reliable""")
         out["recent"] = con.execute(f"""
             SELECT publication_year, count(*), count(*) FILTER (WHERE is_proceedings),
                    avg(citations), 100.0 * avg(is_cited::INT)
@@ -156,9 +156,9 @@ def print_profile(p=None):
     for label, n in p["funnel"]:
         print(f"    {label:<38} {n:>13,}   {n / corpus * 100:5.1f}%")
 
-    if "bins" in p:
-        n_bins, reliable, subfields, first, last = p["bins"]
-        print(f"\n  Bins                    {n_bins:>15,}   "
+    if "cohorts" in p:
+        n_cohorts, reliable, subfields, first, last = p["cohorts"]
+        print(f"\n  Cohorts                 {n_cohorts:>15,}   "
               f"{reliable:,} reliable at >= {config.RELIABILITY_THRESHOLD} works")
         print(f"    subfields x years     {subfields:>15,}   x {first}-{last}")
 
@@ -171,11 +171,11 @@ def print_profile(p=None):
 
     if "world" in p:
         n, mncs, pp10, pp1 = p["world"]
-        print(f"\n  World baselines, 2014-2023, reliable bins ({n:,} works)")
-        # No reliable bins at all means the averages are null, which happens on a
+        print(f"\n  World baselines, 2014-2023, reliable cohorts ({n:,} works)")
+        # No reliable cohorts at all means the averages are null, which happens on a
         # build limited to a few source files rather than the whole snapshot.
         if mncs is None:
-            print("    none — no bin reached the reliability threshold")
+            print("    none — no cohort reached the reliability threshold")
         else:
             print(f"    MNCS {mncs:.4f}      PP(top 10%) {pp10:.2f}%"
                   f"      PP(top 1%) {pp1:.2f}%")

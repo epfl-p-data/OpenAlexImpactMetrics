@@ -8,7 +8,7 @@
 # ============================================================================
 # COLUMNS OAM READS (verified present, 2026-09-10; resolve columns added 2026-09-15)
 # ============================================================================
-# Scope, bins and citations:
+# Scope, cohorts and citations:
 #   id                                 VARCHAR   'https://openalex.org/W2741809807' -> int64 via id[23:]
 #   publication_year                   INTEGER
 #   language                           VARCHAR   scope: == 'en'
@@ -18,7 +18,7 @@
 #   primary_location.source.is_core    BOOLEAN   scope: core journal branch
 #   primary_location.raw_type          VARCHAR   scope: == 'proceedings-article' -> conference branch
 #   primary_topic.subfield.id          VARCHAR   'https://openalex.org/subfields/1602' -> int
-#   institutions_distinct_count        INTEGER   n_institutions for fractional counting; >0 => has authorship
+#   institutions_distinct_count        INTEGER   fractional-counting denominator; >0 => has authorship
 #   referenced_works                   VARCHAR[] outgoing citations -> edges
 #
 # The resolve warehouse (build step 3). All of these are cheap except authorships,
@@ -56,7 +56,7 @@
 #    file over a local HTTP server that counts the bytes in every range request:
 #
 #      SELECT publication_year                                           0.08 MiB   0.21%
-#      the scope + bins + edges projection (11 leaf columns)             2.25 MiB   5.62%
+#      the scope + cohorts + edges projection (11 leaf columns)          2.25 MiB   5.62%
 #      + doi, source.id, open_access.*, funders[], corresponding ids     0.47 MiB   1.17%
 #      list_transform(authorships, a -> a.author.id)                     5.94 MiB  14.85%
 #      sum(len(authorships::VARCHAR))            <- the whole column     5.94 MiB  14.85%

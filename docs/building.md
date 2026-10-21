@@ -30,7 +30,7 @@ It runs three steps in order:
 | Step | What it does | Time |
 |---|---|---|
 | `"store"` | Reads the OpenAlex snapshot, applies the scope, keeps the citations between in-scope papers | Your bandwidth |
-| `"metrics"` | Computes citation counts, bin averages and every paper's scores | About 2 minutes |
+| `"metrics"` | Computes citation counts, cohort averages and every paper's scores | About 2 minutes |
 | `"resolve"` | Builds the lookup tables `oam.resolve` uses | About 25 minutes |
 
 To run one step on its own, pass `steps="metrics"`, or a list such as `steps=["metrics", "resolve"]`.
@@ -48,7 +48,7 @@ oam.check()      # consistency checks, a few seconds
 oam.profile()    # what the data contains: scope funnel, citations, world averages
 ```
 
-`oam.profile()` must show a world MNCS of **1.0000**. That confirms each paper was divided by its own bin's average.
+`oam.profile()` must show a world MNCS of **1.0000**. That confirms each paper was divided by its own cohort's average.
 
 ## Change the scope
 

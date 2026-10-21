@@ -4,8 +4,8 @@ Reads works_scope and edges from the store and materializes three tables under
 data/metrics/:
 
   citation_counts/  citations received per in-scope work (open window and 3-year)
-  bin_stats/        n_works, mean, median, stdev, p90, p99 per subfield x year x type
-  work_metrics/     per-work ncs, percentile, decile, is_top10, is_top1
+  cohort_stats/        n_works, mean, median, stdev, p90, p99 per subfield x year x type
+  work_metrics/     per-work ncs, citation_normalized_percentile, decile, is_in_top_10_percent, is_in_top_1_percent
 
 Stage 1 is the only expensive pass: 2.16B edges aggregated once. Stages 2 and 3 work
 on 62M rows and are cheap, so re-deriving metrics after a definition change never
@@ -57,9 +57,9 @@ GROUP BY 1
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 — bin statistics
+# Stage 2 — cohort statistics
 # ---------------------------------------------------------------------------
-# A bin is subfield x publication_year x (journal | conference). Uncited works must
+# A cohort is subfield x publication_year x (journal | conference). Uncited works must
 # be present with a zero, so this reads the universe and left-joins the counts
 # rather than aggregating citation_counts directly.
 
@@ -96,14 +96,14 @@ GROUP BY 1, 2, 3
 # Stage 3 — per-work metrics
 # ---------------------------------------------------------------------------
 # The definitions:
-#   ncs        = citations / bin mean            -> averages to MNCS
-#   percentile = CUME_DIST() ascending, 0..1
+#   ncs        = citations / cohort mean            -> averages to MNCS
+#   citation_normalized_percentile = CUME_DIST() ascending, 0..1
 #   decile     = NTILE(10) descending, 1 = top decile
-#   is_top10   = citations >= bin p90            (>= keeps tied works, and integer
+#   is_in_top_10_percent   = citations >= cohort p90            (>= keeps tied works, and integer
 #                                                 citation counts tie often, so the
 #                                                 world baseline lands above 10%)
-# Metrics are computed for every work, including those in bins too small to be
-# stable; bin_is_reliable is exposed so a caller can filter rather than being handed
+# Metrics are computed for every work, including those in cohorts too small to be
+# stable; cohort_is_reliable is exposed so a caller can filter rather than being handed
 # a NULL.
 
 WORK_METRICS_SQL = f"""
@@ -113,10 +113,10 @@ WITH joined AS (
         u.publication_year,
         u.subfield,
         u.is_proceedings,
-        u.n_institutions,
+        u.institutions_distinct_count,
         COALESCE(c.citations, 0)        AS citations,
         COALESCE(c.citations_{W}y, 0)   AS citations_{W}y,
-        b.n_works                       AS bin_n_works,
+        b.n_works                       AS cohort_n_works,
         b.mean_citations,
         b.median_citations,
         b.stdev_citations,
@@ -125,10 +125,10 @@ WITH joined AS (
         b.mean_citations_{W}y,
         b.p90_{W}y,
         b.p99_{W}y,
-        b.is_reliable                   AS bin_is_reliable
+        b.is_reliable                   AS cohort_is_reliable
     FROM universe u
     LEFT JOIN read_parquet('{{counts}}') c ON c.work_id = u.work_id
-    JOIN read_parquet('{{bins}}') b
+    JOIN read_parquet('{{cohorts}}') b
       ON  b.publication_year = u.publication_year
      AND b.subfield          = u.subfield
      AND b.is_proceedings    = u.is_proceedings
@@ -139,7 +139,7 @@ ranked AS (
         CUME_DIST() OVER (
             PARTITION BY publication_year, subfield, is_proceedings
             ORDER BY citations
-        ) AS percentile,
+        ) AS citation_normalized_percentile,
         NTILE(10) OVER (
             PARTITION BY publication_year, subfield, is_proceedings
             ORDER BY citations DESC
@@ -151,7 +151,7 @@ SELECT
     publication_year,
     subfield,
     is_proceedings,
-    n_institutions,
+    institutions_distinct_count,
     citations,
     citations_{W}y,
     (citations > 0)                                                     AS is_cited,
@@ -159,16 +159,16 @@ SELECT
     CASE WHEN median_citations > 0 THEN citations / median_citations END AS norm_vs_median,
     CASE WHEN stdev_citations  > 0
          THEN (citations - mean_citations) / stdev_citations          END AS zscore,
-    percentile,
+    citation_normalized_percentile,
     decile,
-    (citations >= p90)                                                  AS is_top10,
-    (citations >= p99)                                                  AS is_top1,
+    (citations >= p90)                                                  AS is_in_top_10_percent,
+    (citations >= p99)                                                  AS is_in_top_1_percent,
     CASE WHEN mean_citations_{W}y > 0
          THEN citations_{W}y / mean_citations_{W}y                    END AS ncs_{W}y,
-    (citations_{W}y >= p90_{W}y)                                        AS is_top10_{W}y,
-    (citations_{W}y >= p99_{W}y)                                        AS is_top1_{W}y,
-    bin_n_works,
-    bin_is_reliable
+    (citations_{W}y >= p90_{W}y)                                        AS is_in_top_10_percent_{W}y,
+    (citations_{W}y >= p99_{W}y)                                        AS is_in_top_1_percent_{W}y,
+    cohort_n_works,
+    cohort_is_reliable
 FROM ranked
 """
 
@@ -181,10 +181,10 @@ def build_universe(con, include_xpack):
     """The metric population: in-scope works, xpack excluded unless asked for.
 
     xpack records arrived with the 2025-11-12 "walden" release and are a third of the
-    corpus, but only ~44k of them are in scope. They are excluded by default so bin
+    corpus, but only ~44k of them are in scope. They are excluded by default so cohort
     denominators stay comparable with pre-walden snapshots.
 
-    A publication year is required because it is one of the three bin dimensions: a
+    A publication year is required because it is one of the three cohort dimensions: a
     work without one cannot be normalised against a peer group.
     """
     scope = config.table_glob("works_scope")
@@ -193,7 +193,7 @@ def build_universe(con, include_xpack):
         conditions.append("NOT is_xpac")
     con.execute(f"""
         CREATE TEMP TABLE universe AS
-        SELECT work_id, publication_year, subfield, is_proceedings, n_institutions
+        SELECT work_id, publication_year, subfield, is_proceedings, institutions_distinct_count
         FROM read_parquet('{scope}')
         WHERE {' AND '.join(conditions)}
     """)
@@ -273,7 +273,7 @@ def build(stage=None, include_xpack=False):
     print(f"  store  : {config.STORE_DIR}")
     print(f"  output : {config.METRICS_DIR}")
     print(f"  xpack  : {'included' if include_xpack else 'excluded from the population'}")
-    print(f"  bins   : reliable at >= {config.RELIABILITY_THRESHOLD} works")
+    print(f"  cohorts   : reliable at >= {config.RELIABILITY_THRESHOLD} works")
 
     con = connect(_tmp_dir())
     t0 = time.time()
@@ -283,12 +283,12 @@ def build(stage=None, include_xpack=False):
 
     forced = stage or len(config.METRIC_TABLES) + 1
     counts = config.table_glob("citation_counts")
-    bins = config.table_glob("bin_stats")
+    cohorts = config.table_glob("cohort_stats")
 
     plan = [
         ("citation_counts", "aggregating the edge list", None),
-        ("bin_stats", "subfield x year x type", None),
-        ("work_metrics", "normalising every work in its bin", "publication_year"),
+        ("cohort_stats", "subfield x year x type", None),
+        ("work_metrics", "normalising every work in its cohort", "publication_year"),
     ]
 
     for n, (table, what, partition_by) in enumerate(plan, start=1):
@@ -306,11 +306,11 @@ def build(stage=None, include_xpack=False):
             )
             sql = CITATION_COUNTS_SQL.format(
                 citer_filter=citer_filter, edges=config.table_glob("edges"))
-        elif table == "bin_stats":
+        elif table == "cohort_stats":
             sql = BIN_STATS_SQL.format(
                 counts=counts, threshold=config.RELIABILITY_THRESHOLD)
         else:
-            sql = WORK_METRICS_SQL.format(counts=counts, bins=bins)
+            sql = WORK_METRICS_SQL.format(counts=counts, cohorts=cohorts)
 
         rows = copy_parquet(con, sql, config.table_dir(table), partition_by)
         state.record(table, rows, time.time() - t0, settings)
