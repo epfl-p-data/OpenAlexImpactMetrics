@@ -89,32 +89,30 @@ The same 4,151 papers weigh 2,062 once each institution's share is taken. The MN
 
 For a large institution the two are close. For a small one they can answer different questions, and the default is full counting.
 
-The Private University in the Principality of Liechtenstein (`I4210121311`), 2018 to 2024, on the snapshot of 14 October 2026:
+- **Full counting** asks how the papers that carry the institution's name are cited. Every paper weighs 1.
+- **Fractional counting** asks how the institution's own share of those papers is cited. A paper shared with many institutions weighs little.
+- **`corresponding=True`** keeps only the papers where the institution is the corresponding author's, the papers it led.
 
-| Counting | What was counted | MNCS |
+They part when a few highly cited papers are shared with many institutions. Take an institution with ten papers: nine written on its own, each with an NCS of 0.8, and one written with 99 other institutions, with an NCS of 40.
+
+| Counting | Weight of the shared paper | MNCS |
 |---|---|---|
-| full | 247 papers | 1.69 |
-| fractional | 52.63 paper-shares | 0.84 |
-| corresponding author only | 100 scored papers | 0.9 |
+| full | 1 | (9 × 0.8 + 40) / 10 = 4.72 |
+| fractional | 1/100 | (9 × 0.8 + 0.01 × 40) / 9.01 = 0.84 |
+
+Both numbers are right. The first says the institution's name is on highly cited work. The second says its own share of the work is cited a little below the world average. On a small set, one or two such papers are enough to move the full-counting MNCS a long way.
+
+To see how much of a set rests on widely shared papers:
 
 ```python
-ids = oam.resolve(institution="I4210121311", year=(2018, 2024))
-oam.aggregate(ids, by=None).round(2)
-oam.aggregate(ids, by=None, counting="frac").round(2)
-oam.aggregate(oam.resolve(institution="I4210121311", year=(2018, 2024), corresponding=True), by=None).round(2)
-```
-
-Full counting says the university is cited well above the world. Fractional counting and corresponding authorship say the papers it accounts for sit below the world average.
-
-The gap is the papers written with many other institutions. This is the check:
-
-```python
+oam.aggregate(ids, by=None)
+oam.aggregate(ids, by=None, counting="frac")
 m = oam.get_metrics(ids)
 m = m[m.scored]
 wide = m.institutions_distinct_count >= 20
 ```
 
-Papers with 20 or more institutions carry 59.6% of the citations and 1.4% of the fractional weight. The most-cited paper, `W2883415719`, has 167 institutions, 1,162 citations and an NCS of 41.67. The next, `W3182807823`, has 795 institutions and 766 citations.
+If the `wide` papers carry a large share of the citations and a small share of `P_frac`, the full-counting MNCS mostly describes them.
 
 A year with few scored papers makes a two-decimal MNCS look more precise than it is. The reliability rule protects the world cohort, not the size of the set you are quoting.
 
