@@ -46,6 +46,33 @@ oam.aggregate(ids).round(2)
 oam.dimension("institutions", search="Lausanne")
 ```
 
+## How the pieces fit
+
+```text
+ a question            oam.dimension(...)      names → ids          (institution, funder, source, topic)
+       │
+       ▼
+ the works             oam.resolve(...)        every work matching, scored or not  → list of integer work ids
+       │                                       (or your own ids or DOIs)
+       ├──────────────▶ oam.explain(ids)       per work: found, in scope, which rule failed
+       ├──────────────▶ oam.get_metrics(ids)   per work: citations, ncs, percentile, top flags, OpenAlex FWCI
+       ▼
+ the indicators        oam.aggregate(ids)      per group: P, TCS, MCS, MNCS, PP(top 10%), PP(top 1%)
+```
+
+`resolve` keeps every matching work. `explain` and `get_metrics` report on each one. `aggregate` counts a work when it is scored and its cohort has at least 500 papers. EPFL in 2023 shows each drop:
+
+| Step | Works | Call |
+|---|---|---|
+| resolved | 7,763 | `len(oam.resolve(institution="I5124864", year=2023))` |
+| in scope (passes the seven rules) | 4,508 | `oam.explain(ids).in_scope.sum()` |
+| scored | 4,508 | `oam.get_metrics(ids).scored.sum()` |
+| counted by `aggregate` | 4,470 | `oam.aggregate(ids).P_full` |
+
+The last 38 papers sit in cohorts smaller than 500. `aggregate` leaves them out while `reliable_only=True`, which is the default.
+
+`resolve` returns plain integers, such as `[771562940, 1530463068]`. Every function also accepts `W…` ids. `aggregate` accepts a list, a set, a pandas Series or a NumPy array. From the frame `get_metrics` returns, pass `df.work_id`. Nothing calls the network after the download. Titles, DOIs and authors are not in the data. Resolving and scoring EPFL over five years, or a country over a year, takes under a second.
+
 ## Three examples
 
 These numbers come from the OpenAlex snapshot of 14 October 2026.
@@ -100,7 +127,7 @@ oam.aggregate(ids).round(2)
              2024   52768  605921.0     11.48       1.75          19.27          2.99
 ```
 
-You can select papers the same way by author, funder, journal, field or DOI. [Querying](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/querying.md) lists every option.
+You can select papers the same way by author, funder, journal, field or DOI. [Querying](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/querying.md) lists every option. [Cookbook](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/cookbook.md) puts a question next to the call that answers it: two institutions, a funder, a journal, co-publications.
 
 ## Reading the numbers
 
@@ -108,7 +135,7 @@ You can select papers the same way by author, funder, journal, field or DOI. [Qu
 - **MNCS_full** compares those papers with similar papers worldwide. The download counts every citation up to the snapshot, self-citations included. The world average is 1. A value of 2 means cited twice as much.
 - **PP_top10_full** is the share of papers among the 10% most cited of their cohort. For the world it sits a little above 10%, because papers tied at the threshold are all counted in. **PP_top1_full** is the same for the top 1%.
 
-A recent paper has had less time to be cited. It is compared only with papers from its own year, so MNCS and the top shares can be read across years, while TCS and MCS fall for recent years. For a small institution, compare full and fractional counting before quoting an MNCS. [When the two disagree](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#when-full-and-fractional-counting-disagree) shows a university whose shared papers carry most of the citations. To count a fixed number of years, or to drop self-citations, the data is rebuilt with that choice. [Building](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md#citation-window-and-self-citations) shows the arguments.
+A recent paper has had less time to be cited. It is compared only with papers from its own year, so MNCS and the top shares can be read across years, while TCS and MCS fall for recent years. For a small institution, compare full and fractional counting before quoting an MNCS. A set of a few dozen papers gives numbers with a wide margin. [When the two disagree](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#when-full-and-fractional-counting-disagree) shows a university whose shared papers carry most of the citations. To count a fixed number of years, or to drop self-citations, the data is rebuilt with that choice. [Building](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md#citation-window-and-self-citations) shows the arguments.
 
 [How the scores work](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md) explains the other columns, and full and fractional counting.
 

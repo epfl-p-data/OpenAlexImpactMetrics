@@ -197,6 +197,8 @@ Publishing happens from GitHub, with no token stored in the repository. [PyPI](h
 For each release:
 
 1. Set `version` in [`pyproject.toml`](../pyproject.toml) and in [`CITATION.cff`](../CITATION.cff), and push.
-2. On GitHub, create a release named `v` followed by that version, for example `v0.2.0`.
+2. On GitHub, create a release named `v` followed by that version, for example `v0.3.1`.
 
-The [publish workflow](../.github/workflows/publish.yml) builds the package and uploads it to PyPI.
+The [publish workflow](../.github/workflows/publish.yml) runs the [tests](../.github/workflows/tests.yml) on that tag and uploads the package to PyPI only when they pass.
+
+Right after a release, `pip install openalex-metrics` can still resolve to the previous version for a few minutes. Wait until `pip index versions openalex-metrics` lists the new version before announcing it.

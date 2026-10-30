@@ -73,7 +73,7 @@ _LETTERS = {
 _CORRESPONDABLE = ("institution", "country", "author", "orcid")
 
 _OA_STATUSES = ("closed", "green", "bronze", "hybrid", "gold", "diamond")
-_YEAR_FORMS = '2020, (2014, 2023) or "2014-2023"'
+_YEAR_FORMS = '2020, [2019, 2021], (2014, 2023) or "2014-2023"'
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,17 @@ def _pair_select(name, values, corresponding):
 
 
 def _year_condition(year):
-    """Reuses the API's own parsing so both backends read a year the same way."""
+    """A list is those years. A tuple or "2014-2023" is every year between them."""
+    if isinstance(year, list):
+        years = []
+        for value in year:
+            try:
+                years.append(int(value))
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"year={year!r} is not a year. Use {_YEAR_FORMS}."
+                ) from None
+        return _in("publication_year", years)
     try:
         spec = openalex.year_filter(year).strip()
         if "-" in spec:
@@ -247,7 +257,8 @@ def resolve(institution=None, author=None, doi=None, year=None,
     author        author id
     doi           one DOI or a list of them, on its own: it does not combine with
                   the other arguments
-    year          2020, (2014, 2023) or "2014-2023"
+    year          2020, [2019, 2021], (2014, 2023) or "2014-2023". A list is those
+                  years. A tuple or a "2014-2023" string is the range between them
     corresponding restrict institution=, country=, author= and orcid= to the works
                   they corresponded on
     proceedings   True for conference papers, False for journal articles
@@ -298,17 +309,15 @@ def resolve_dois(dois):
     con = connection()
     con.register("_dois", pd.DataFrame({"doi": wanted}))
     doi_table = config.table_glob("work_doi")
-    found = [row[0] for row in con.execute(f"""
-        SELECT DISTINCT w.work_id
+    # One fetchall. A second statement ended with fetchone leaves its result
+    # open on DuckDB 2.0, and the next query on this connection then fails.
+    rows = con.execute(f"""
+        SELECT w.doi, w.work_id
         FROM read_parquet('{doi_table}') w
         JOIN _dois d ON d.doi = w.doi
-        ORDER BY 1
-    """).fetchall()]
-    matched = con.execute(f"""
-        SELECT count(*) FROM _dois d
-        WHERE d.doi IN (SELECT doi FROM read_parquet('{doi_table}'))
-    """).fetchone()[0]
-    missing = len(wanted) - matched
+    """).fetchall()
+    found = sorted({work_id for _, work_id in rows})
+    missing = len(wanted) - len({doi for doi, _ in rows})
     if missing:
         print(f"· {missing} of {len(wanted)} DOIs are not in the snapshot")
     return found

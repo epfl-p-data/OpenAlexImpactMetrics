@@ -33,10 +33,14 @@ def numeric_id(openalex_id, letter=None):
 
 
 def year_filter(year):
-    """2020, (2014, 2023) or '2014-2023' -> a 'YYYY' or 'YYYY-YYYY' spec."""
+    """2020, (2014, 2023) or '2014-2023' -> a 'YYYY' or 'YYYY-YYYY' spec.
+
+    A list is not a range. resolve() turns a list into those years before it
+    gets here.
+    """
     if isinstance(year, str):
         return year
-    if isinstance(year, (tuple, list)):
+    if isinstance(year, tuple):
         return f"{year[0]}-{year[1]}"
     return str(year)
 

@@ -147,7 +147,7 @@ def profile():
 
 
 def print_profile(p=None):
-    """Render the profile as a block of plain text."""
+    """Print the profile as a block of plain text."""
     p = p or profile()
     if not p.get("corpus"):
         print("· Nothing built yet.")

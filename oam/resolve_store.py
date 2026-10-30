@@ -189,7 +189,7 @@ def print_status():
     from .bundle import installed
     bundle = installed()
     st = status()
-    print("▶ Resolve warehouse (build step 3)")
+    print("▶ Resolve warehouse")
     if bundle:
         print(f"  downloaded archive, snapshot {bundle['snapshot']}")
     for table, info in st["tables"].items():

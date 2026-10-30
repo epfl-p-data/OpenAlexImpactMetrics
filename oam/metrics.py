@@ -260,7 +260,7 @@ def print_status():
     from .bundle import installed
     bundle = installed()
     st = status()
-    print("▶ Metric layers (build step 2)")
+    print("▶ Metric layers")
     if bundle:
         print(f"  downloaded archive, snapshot {bundle['snapshot']}")
     for table, info in st["tables"].items():

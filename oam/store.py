@@ -465,7 +465,7 @@ def status():
 
 def print_status():
     st = status()
-    print("▶ Store (build step 1)")
+    print("▶ Store")
     if st.get("downloaded"):
         from .bundle import installed
         print(f"  downloaded archive, snapshot {installed()['snapshot']}")

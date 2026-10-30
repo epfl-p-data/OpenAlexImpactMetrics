@@ -11,8 +11,13 @@ is ``oam.build()``.
 
 Once the data is in place nothing here touches the network.
 
-See README.md. docs/metrics.md explains the scores, docs/querying.md is the
-query guide, and docs/building.md covers building and publishing a data release.
+See https://github.com/epfl-p-data/OpenAlexImpactMetrics#readme.
+https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md
+explains the scores,
+https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/querying.md
+is the query guide, and
+https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md
+covers building and publishing a data release.
 """
 
 import json
@@ -48,9 +53,14 @@ __version__ = _package_version()
 
 __all__ = [
     "aggregate", "build", "check", "dimension", "download", "explain", "export",
-    "get_metrics", "profile", "resolve", "resolve_dois", "set_data_dir", "status",
-    "work_ids", "config",
+    "get_metrics", "installed", "profile", "resolve", "resolve_dois",
+    "set_data_dir", "status", "work_ids", "config",
 ]
+
+
+def __dir__():
+    return sorted(__all__ + ["__version__"])
+
 
 _STEPS = ("store", "metrics", "resolve")
 
@@ -141,7 +151,8 @@ def status():
     bundle = installed()
     print(f"data: {config.DATA_DIR}")
     if bundle:
-        print(f"bundle: snapshot {bundle['snapshot']}")
+        print(f"bundle: snapshot {bundle['snapshot']}, "
+              f"format {bundle['format']}, readable by OAM {__version__}")
     elif config.STORE_STATE_PATH.is_file():
         date = json.loads(config.STORE_STATE_PATH.read_text()).get("date")
         print(f"bundle: local build, snapshot {date}")

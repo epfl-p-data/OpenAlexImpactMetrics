@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+`resolve(doi=...)` no longer leaves the query connection unusable on DuckDB 2.0. The next `aggregate`, `get_metrics` or `resolve` in the same session works.
+
+`year=[2019, 2021]` is those two years. A tuple and a `"2014-2023"` string stay ranges.
+
+The PyPI publish workflow runs the tests first and publishes only when they pass.
+
+`dir(oam)` lists the public names. `oam.status()` on a download reports the data format and that this OAM can read it. Its section titles no longer say "build step".
+
+The data format stays 3.
+
 ## 0.3.0
 
 `get_metrics` calls the score-table flag `scored`. `in_scope` stays on `explain`, where it means the work passed the scope rules. `explain` and `get_metrics(explain=True)` return `is_xpack` and `failed_criteria`. A paper in scope is not scored when it is an xpack record, or when it has no publication year.

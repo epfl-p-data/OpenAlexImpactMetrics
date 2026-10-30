@@ -2,17 +2,27 @@
 
 How to choose papers, check which ones are scored, and get the scores per paper or per group. For what the scores mean, see [How the scores work](metrics.md).
 
-## The functions
+## All functions
 
-All of them read the data from `oam.download()`. If it is not there, the function says so.
+The query functions read the data from `oam.download()`. If it is not there, the function says so.
 
-| Function | Returns |
-|---|---|
-| `oam.aggregate(ids)` | One row of indicators per group |
-| `oam.get_metrics(ids)` | One row of scores per paper |
-| `oam.explain(ids)` | Whether each paper is in scope, and which rules it failed |
-| `oam.dimension(kind)` | Names behind ids, and ids behind names |
-| `oam.resolve(...)` | Paper ids matching a filter or a DOI list |
+| Function | What it does | Where |
+|---|---|---|
+| `oam.resolve(...)` | Paper ids matching a filter | [Choose the papers](#choose-the-papers) |
+| `oam.resolve_dois(dois)` | Paper ids for a DOI list | [A list of DOIs](#a-list-of-dois) |
+| `oam.work_ids(ids)` | Integers from `W…` ids | [A list of OpenAlex work ids](#a-list-of-openalex-work-ids) |
+| `oam.get_metrics(ids)` | One row of scores per paper | [Scores per paper](#scores-per-paper) |
+| `oam.explain(ids)` | Whether each paper is in scope, and which rules it failed | [Which papers are scored](#which-papers-are-scored) |
+| `oam.aggregate(ids)` | One row of indicators per group | [Indicators per group](#indicators-per-group) |
+| `oam.dimension(kind)` | Names behind ids, and ids behind names | [Finding an id](#finding-an-id) |
+| `oam.download()` | Install a published archive | [Building](building.md) |
+| `oam.installed()` | The `bundle.json` of a download, or `None` for a local build | [Where the data lives](#where-the-data-lives) |
+| `oam.status()` | What is installed, how big, which snapshot | [Where the data lives](#where-the-data-lives) |
+| `oam.check()` | Consistency checks | [Building](building.md) |
+| `oam.profile()` | Print what the data contains | [Building](building.md) |
+| `oam.set_data_dir(path)` | Use another directory for the rest of the session | [Where the data lives](#where-the-data-lives) |
+| `oam.export(path)` | Write the archive a download installs | [Building](building.md) |
+| `oam.build()` | Build the store, the metric layers and the resolve warehouse | [Building](building.md) |
 
 ## Choose the papers
 
@@ -44,7 +54,7 @@ oam.resolve(orcid="0000-0002-1825-0097")                  # one researcher
 oam.resolve(field=17, year=2023, proceedings=True)        # computer science conference papers
 ```
 
-Different arguments are combined with AND. A list given to one argument is combined with OR: `country=["CH", "FR"]` is Switzerland or France.
+Different arguments are combined with AND. A list given to one argument is combined with OR: `country=["CH", "FR"]` is Switzerland or France. `year=[2019, 2021]` is 2019 or 2021. `year=(2019, 2021)` and `year="2019-2021"` are every year from 2019 to 2021.
 
 A bare number works wherever a prefixed id does: `5124864` and `"I5124864"` are the same institution, and the same is true of authors, funders, sources, subfields, fields and domains.
 
@@ -56,42 +66,55 @@ A bare number works wherever a prefixed id does: `5124864` and `"I5124864"` are 
 | `funder=` | A funder id |
 | `source=` | A journal or conference id |
 | `subfield=` / `field=` / `domain=` | The paper's main topic, at three levels of detail |
-| `year=` | `2020`, `(2014, 2023)` or `"2014-2023"` |
+| `year=` | `2020`, `[2019, 2021]`, `(2014, 2023)` or `"2014-2023"`. A list is those years. A tuple or a dashed string is the range |
 | `proceedings=` | `True` for conference papers only, `False` for journal articles only |
 | `oa_status=` | `"closed"`, `"green"`, `"bronze"`, `"hybrid"`, `"gold"` or `"diamond"` |
 | `work_type=` | The OpenAlex type, for example `"article"` |
 | `corresponding=` | `True` keeps only papers where the institution, country or author is the corresponding author |
 
-To find an id from a name, or a name from an id:
+### Finding an id
+
+`oam.dimension` has four kinds: `institutions`, `funders`, `sources` and `topics`. Search matches the stored OpenAlex display name, and the ROR or ISSN when the table has one. It ignores accents, so `"Neuchatel"` finds Neuchâtel, and an exact name comes before a name that only starts with the word, which comes before any other substring. `limit=` keeps the first rows of that order.
 
 ```python
 oam.dimension("institutions", search="Lausanne")
-oam.dimension("institutions", ids="I5124864")
-oam.dimension("funders", search="Nationalfonds")   # the Swiss National Science Foundation
-oam.dimension("topics")          # every subfield, field and domain
-```
-
-Search matches the stored OpenAlex display name, and the ROR or ISSN when the table has one. It ignores accents, so `"Neuchatel"` finds Neuchâtel, and an exact name comes before a name that only starts with the word, which comes before any other substring. It does not match acronyms or alternate names: `"EPFL"` is not the École polytechnique fédérale de Lausanne, and `"NSF"` is not the National Science Foundation. There is no author search. A researcher is selected by ORCID or by OpenAlex author id.
-
-`limit=` keeps the first rows of that order. A broad word such as `"Nature"` matches hundreds of sources, and the journal Nature is the first row:
-
-```python
+oam.dimension("institutions", ids="I5124864")    # the name behind an id
+oam.dimension("topics")                          # every subfield, field and domain
 oam.dimension("sources", search="Nature", limit=10)
 ```
+
+Look an id up before you score on it. A wrong id still returns the works of whatever it names.
+
+| Kind | How to find it |
+|---|---|
+| Institution | English or local name. `"EPFL"` matches a continuing-education centre and a company, so search `"Lausanne"` or the full name and check the row |
+| Source | English or local name, or an ISSN. `"NeurIPS"` matches nothing; `"Neural Information Processing Systems"` does. `"Nature"` with `limit=10` puts the journal Nature first |
+| Funder | Often the name in the funder's own language, and sometimes one funder is several programmes. `"SNSF"` and `"Swiss National Science Foundation"` match nothing; the stored name is searched with `"Nationalfonds"`. `"European Research Council"` is three rows (ERC, H2020 ERC, FP7 Ideas ERC), and a portfolio of the council is all three |
+| Author | No author table. Use an ORCID, or `https://api.openalex.org/authors?search=` for an `A…` id |
+
+When a search here misses, search on [openalex.org](https://openalex.org) and pass the id it shows.
 
 ### A query OAM cannot express
 
 OAM does not call the OpenAlex API. For a filter it lacks, or for papers newer than the snapshot, get the ids from the [OpenAlex API](https://docs.openalex.org) and pass them in:
 
+The API returns the most-cited works first. The first page is the top of that list, so scoring it gives a number for the most-cited papers. Follow `cursor=*` until the pages run out. `meta.count` is how many works the filter matches.
+
 ```python
 import requests
 
-r = requests.get("https://api.openalex.org/works", params={
-    "filter": "authorships.institutions.lineage:I5124864,has_abstract:true,publication_year:2023",
-    "select": "id",
-    "per-page": 200,
-})
-ids = [w["id"] for w in r.json()["results"]]   # follow meta.next_cursor for more pages
+cursor, ids, total = "*", [], None
+while cursor:
+    page = requests.get("https://api.openalex.org/works", params={
+        "filter": "authorships.institutions.lineage:I5124864,has_abstract:true,publication_year:2023",
+        "select": "id",
+        "per-page": 200,
+        "cursor": cursor,
+    }).json()
+    total = page["meta"]["count"]
+    ids.extend(w["id"] for w in page["results"])
+    cursor = page["meta"]["next_cursor"]
+print(len(ids), "of", total)
 oam.aggregate(ids)
 ```
 
@@ -177,7 +200,19 @@ EPFL 2014, `by="is_proceedings"`:
 
 The 3,402 journal articles have an MNCS of 2.04. The 749 conference papers have an MNCS of 1.52.
 
-`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent`, `is_in_top_1_percent` and `cohort_is_reliable`. Open access, funder and source are not among them. An open-access split is one resolve per status:
+What `resolve` can filter and what `aggregate` can group by are different lists.
+
+| | `resolve(...)` filter | `aggregate(by=...)` |
+|---|---|---|
+| publication year | yes | yes |
+| subfield | yes | yes, as an id |
+| field, domain | yes | |
+| journal or conference | `proceedings=` | `is_proceedings` |
+| institution, country, author, ORCID, funder, source | yes | |
+| open access status, work type | yes | |
+| number of institutions, top 10% and top 1% flags, cohort reliability | | yes |
+
+A grouping that `resolve` can filter, such as country or open access status, is one `resolve` per value:
 
 ```python
 for status in ("closed", "green", "bronze", "hybrid", "gold", "diamond"):
@@ -188,10 +223,12 @@ for status in ("closed", "green", "bronze", "hybrid", "gold", "diamond"):
 `subfield` is the OpenAlex id. The name is a merge with the topics table:
 
 ```python
-by_subfield = oam.aggregate(ids, by="subfield")
+by_subfield = oam.aggregate(ids, by="subfield").sort_values("P_full", ascending=False)
 names = oam.dimension("topics", ids=by_subfield.subfield)
 by_subfield.merge(names, left_on="subfield", right_on="subfield_id")
 ```
+
+`aggregate` returns the rows in subfield-id order, so sort by `P_full` before reading them.
 
 The scores follow the build. They are not arguments of `aggregate`. [Building](building.md#citation-window-and-self-citations) is where a window or the removal of self-citations is chosen.
 
@@ -206,6 +243,7 @@ The other options:
 
 ```python
 oam.status()                  # what is installed, how big, which snapshot
+oam.installed()               # the bundle.json of a download, or None for a local build
 oam.set_data_dir("/data/oam") # use another directory for the rest of the session
 ```
 

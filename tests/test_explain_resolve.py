@@ -101,6 +101,19 @@ def test_a_missing_doi_is_reported(capsys):
     assert "· 2 of 3 DOIs are not in the snapshot" in capsys.readouterr().out
 
 
+def test_a_doi_lookup_leaves_the_connection_usable():
+    assert oam.resolve(doi="10.1000/oam-101") == [101]
+    table = oam.aggregate([101], by=None)
+    assert int(table.P_full.iloc[0]) == 1
+
+
+def test_a_year_list_is_those_years_not_a_range():
+    # 201 sits in 2018, between 2014 and 2024, so a range includes it and a list does not.
+    assert oam.resolve(institution="I5001", year=[2014, 2024]) == [101, 102]
+    assert oam.resolve(institution="I5001", year=(2014, 2024)) == [101, 102, 201]
+    assert oam.resolve(institution="I5001", year=[2014, 2018, 2024]) == [101, 102, 201]
+
+
 def test_dimension_search_folds_accents_and_ranks_exact_names():
     found = oam.dimension("institutions", search="Neuchatel")
     assert list(found.institution_id) == [5003]
