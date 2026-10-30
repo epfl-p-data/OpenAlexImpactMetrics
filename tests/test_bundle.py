@@ -27,37 +27,12 @@ def test_export_then_download_scores_the_same(built, tmp_path):
     assert tar.name == "oam-2026-09-23.tar"
 
     oam.set_data_dir(tmp_path / "installed")
-    info = oam.download(source=tar)
-    assert info["snapshot"] == "2026-09-23"
-    assert "tier" not in info
+    assert oam.download(source=tar) == "2026-09-23"
     after = _scores(ids)
     for key in ("P_full", "TCS_full", "MNCS_full", "PP_top10_full"):
         assert after[key] == pytest.approx(before[key])
 
-    again = oam.download(source=tar)
-    assert again["snapshot"] == "2026-09-23"
-
-
-def test_light_parquet_is_sorted_and_names_its_origin(built, tmp_path):
-    import duckdb
-
-    tar = oam.export(tmp_path / "dist")
-    light = tar.with_name("oam-metrics-2026-09-23.parquet")
-    con = duckdb.connect()
-    ids = [row[0] for row in con.execute(
-        f"SELECT work_id FROM read_parquet('{light.as_posix()}')").fetchall()]
-    assert ids == sorted(ids) and ids
-    meta = {
-        (key.decode() if isinstance(key, bytes) else key):
-        (value.decode() if isinstance(value, bytes) else value)
-        for key, value in con.execute(
-            f"SELECT key, value FROM parquet_kv_metadata('{light.as_posix()}')"
-        ).fetchall()
-    }
-    assert meta["snapshot"] == "2026-09-23"
-    assert meta["license"] == "CC0-1.0"
-    assert "is_english" in meta["scope"]
-    assert "definitions" in meta["settings"]
+    assert oam.download(source=tar) == "2026-09-23"
 
 
 def test_old_format_is_refused_and_replaced(built, tmp_path, monkeypatch):
@@ -94,8 +69,7 @@ def test_snapshot_mismatch_needs_replace(built, tmp_path):
     # The installed snapshot is untouched.
     assert json.loads(config.STORE_STATE_PATH.read_text())["date"] == "2026-09-23"
 
-    info = oam.download(source=other, replace=True)
-    assert info["snapshot"] == "1999-01-01"
+    assert oam.download(source=other, replace=True) == "1999-01-01"
 
 
 def test_bad_checksum_is_refused(tmp_path):
@@ -122,6 +96,16 @@ def test_path_escape_is_refused(tmp_path):
     with pytest.raises(RuntimeError, match="unsafe path"):
         _safe_extract(tar, dest)
     assert not (tmp_path / "evil.txt").exists()
+
+
+def test_a_partial_download_of_another_version_is_not_resumed(tmp_path, monkeypatch):
+    oam.set_data_dir(tmp_path / "data")
+    stale = config.DATA_DIR / "_downloads" / "0123456789abcdef.tar"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"half of an older version")
+    monkeypatch.setattr(bundle, "_download_file", lambda url, dest: dest.touch())
+    path = bundle._materialize("https://zenodo.invalid/records/2/files/oam-2027-01-15.tar/content")
+    assert list(stale.parent.iterdir()) == [path]
 
 
 def test_download_without_a_record_says_so(tmp_path, monkeypatch):
@@ -154,7 +138,7 @@ def _zenodo_offers(monkeypatch, name, seen=None):
 def test_latest_already_installed_downloads_nothing(built, tmp_path, monkeypatch):
     _installed_from(oam.export(tmp_path / "dist"), tmp_path)
     _zenodo_offers(monkeypatch, "oam-2026-09-23.tar")
-    assert oam.download()["snapshot"] == "2026-09-23"
+    assert oam.download() == "2026-09-23"
 
 
 def test_newer_snapshot_needs_replace_before_downloading(built, tmp_path, monkeypatch):
@@ -178,7 +162,7 @@ def test_installed_data_is_kept_when_zenodo_is_unreachable(built, tmp_path, monk
     def offline(record=None):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(bundle, "_zenodo_file", offline)
-    assert oam.download()["snapshot"] == "2026-09-23"
+    assert oam.download() == "2026-09-23"
 
 
 def _tiny_tar(path, sha):

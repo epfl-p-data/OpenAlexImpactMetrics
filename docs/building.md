@@ -30,7 +30,7 @@ It runs three steps in order:
 | Step | What it does | Time |
 |---|---|---|
 | `"store"` | Reads the OpenAlex snapshot, applies the scope, keeps the citations between in-scope papers | Your bandwidth |
-| `"metrics"` | Computes citation counts, cohort averages and every paper's scores | About 7 minutes |
+| `"metrics"` | Computes citation counts, cohort averages and every paper's scores | About 2 minutes |
 | `"resolve"` | Builds the lookup tables `oam.resolve` uses | About 6 minutes |
 
 To run one step on its own, pass `steps="metrics"`, or a list such as `steps=["metrics", "resolve"]`.
@@ -77,11 +77,10 @@ From a finished build, write the archive `oam.download()` installs:
 
 ```python
 oam.export("dist")
-# dist/oam-<snapshot>.tar              the tables oam.download() installs
-# dist/oam-metrics-<snapshot>.parquet  the scores alone, one sorted file
+# dist/oam-<snapshot>.tar    the tables oam.download() installs
 ```
 
-Then upload both files to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the names `oam.export` wrote: `oam.download()` finds the one file whose name starts with `oam-` and ends with `.tar`, and reads the snapshot date from it. The Parquet file is for people who only want the scores.
+Then upload that archive to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the name `oam.export` wrote: `oam.download()` finds the one file whose name starts with `oam-` and ends with `.tar`, and reads the snapshot date from it.
 
 The installed data has a format number, 3 in OAM 0.2. A directory written by an older OAM is refused: a query stops, and `oam.download()` fetches the current data even when the snapshot date matches. To keep using the 0.1 data, install OAM 0.1 and pin `record=23493155`.
 
@@ -117,24 +116,68 @@ oam.build(steps="store", limit=3, smallest=True)
 
 To keep the xpack records, a third of OpenAlex that the default build leaves out of the comparison, use `oam.build(include_xpack=True)`. See [Scope](scope.md#what-is-not-configurable).
 
+## Citation window and self-citations
+
+The default count includes every citation up to the snapshot, self-citations included. Both are choices of the metric layers, so the data holds one set of scores and a query has nothing to switch. Changing either one reruns step 2, about 2 minutes, and leaves the store in place.
+
+```python
+oam.build(steps="metrics", citation_window=4, exclude_self_citations=True)
+```
+
+`citation_window=4` counts the publication year and the three following years. Any integer of at least 1 is a window of that many years, starting with the publication year. `exclude_self_citations=True` drops a citation whose papers share an OpenAlex author.
+
+The choice is part of what the data is. `oam.status()` prints it, `oam.profile()` repeats it, and `oam.export` writes it into `bundle.json`. [How the scores work](metrics.md#citation-window) says what the window and a self-citation are.
+
 ## Release checklist
 
-The uploads themselves are done by hand.
+The Zenodo release runs from a terminal in the repository, with `curl` and `jq`. It reads a Zenodo token from `.env`, which git ignores, as a line `ZENODO_TOKEN=...`. Create the token under Account, Applications on Zenodo, with the `deposit:write` and `deposit:actions` scopes.
 
 1. `oam.export("dist")` from a finished build, then install that archive into an empty directory and re-run the examples in the README.
-2. On the [Zenodo record](https://doi.org/10.5281/zenodo.23493154), click New version. Set the version and the collected date to the snapshot date, the publication date to today, and update the snapshot figures in the description.
-3. Upload `dist/oam-<snapshot>.tar` and `dist/oam-metrics-<snapshot>.parquet`, keeping the names `oam.export` wrote. The browser upload often stalls on a file this size; the API is more reliable. Create a token with the `deposit:write` and `deposit:actions` scopes, and run these with the draft's id from the address bar, once per file:
+2. Create the new version. Zenodo copies the metadata of the latest version, sets the publication date to today, and starts with no file:
 
    ```bash
-   API=https://zenodo.org/api/records/<draft id>/draft/files
-   NAME=oam-<snapshot>.tar
-   curl -f -X POST -H "Authorization: Bearer $ZENODO_TOKEN" -H "Content-Type: application/json" -d "[{\"key\":\"$NAME\"}]" "$API"
-   curl -f -X PUT -H "Authorization: Bearer $ZENODO_TOKEN" -H "Content-Type: application/octet-stream" --upload-file "dist/$NAME" "$API/$NAME/content"
-   curl -f -X POST -H "Authorization: Bearer $ZENODO_TOKEN" "$API/$NAME/commit"
+   set -a; source .env; set +a
+   SNAPSHOT=2027-01-15
+   VERSION="$SNAPSHOT (OAM 0.2)"
+   NAME=oam-$SNAPSHOT.tar
+   H="Authorization: Bearer $ZENODO_TOKEN"
+   LATEST=$(curl -sfL https://zenodo.org/api/records/23493154 | jq -r .id)
+   DRAFT=$(curl -sf -X POST -H "$H" https://zenodo.org/api/records/$LATEST/versions | jq -r .id)
+   API=https://zenodo.org/api/records/$DRAFT/draft
    ```
 
-   The checksum Zenodo shows must equal `md5 dist/$NAME`. Then publish.
-4. Add the snapshot to the README figures. `ZENODO_RECORD` does not change: it already points at the newest version.
+3. Set the version and the collected date, and write the draft to `dist/draft.json`:
+
+   ```bash
+   curl -sf -H "$H" -H "Accept: application/vnd.inveniordm.v1+json" "$API" \
+     | jq --arg v "$VERSION" --arg s $SNAPSHOT '.metadata.version = $v | .metadata.dates = [{date: $s, type: {id: "collected"}}]' \
+     > dist/draft.json
+   ```
+
+   Update the snapshot figures in `metadata.description` of that file, then send it back:
+
+   ```bash
+   curl -sf -X PUT -H "$H" -H "Content-Type: application/json" -d @dist/draft.json "$API" -o /dev/null
+   ```
+
+4. Upload the archive, keeping the name `oam.export` wrote. 12 GiB takes about half an hour:
+
+   ```bash
+   curl -f -X POST -H "$H" -H "Content-Type: application/json" -d "[{\"key\":\"$NAME\"}]" "$API/files"
+   curl -f -X PUT -H "$H" -H "Content-Type: application/octet-stream" --upload-file "dist/$NAME" "$API/files/$NAME/content" -o /dev/null
+   curl -f -X POST -H "$H" "$API/files/$NAME/commit"
+   ```
+
+5. Check that Zenodo's checksum equals the local one, look over the draft at `https://zenodo.org/uploads/$DRAFT`, and publish. Publishing cannot be undone, and gives the version the DOI `10.5281/zenodo.$DRAFT`:
+
+   ```bash
+   curl -sf -H "$H" "$API/files" | jq -r '.entries[].checksum'
+   md5 dist/$NAME
+   curl -sf -X POST -H "$H" "$API/actions/publish" -o /dev/null
+   ```
+
+   To abandon a draft instead, `curl -f -X DELETE -H "$H" "$API"`.
+6. Add the snapshot to the README figures. `ZENODO_RECORD` does not change: it already points at the newest version.
 
 A new version of the package is only needed when the code changes. A new snapshot does not need one: `oam.download()` always fetches the latest version on Zenodo.
 

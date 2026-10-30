@@ -1,14 +1,13 @@
 """A synthetic store, small enough to build the real metric tables in seconds.
 
-Three cohorts, so the scores can be checked by hand. The snapshot year is 2026,
-so a 4-year window is complete for 2014 and 2018 and not for 2024.
+Three cohorts, so the scores can be checked by hand. The default build counts
+every citation, self-citations included. The snapshot year is 2026.
 
-  2014, subfield 11, journal, four works, 4-year citations 3, 2, 1 and 0.
-      mean 1.5. Reliable when the threshold is 3.
-  2018, subfield 22, conference, two works, 4-year citations 3 and 0.
-      mean 1.5. Not reliable at that threshold.
-  2024, subfield 33, journal, two uncited works. The threshold is 0 and the
-      window is not complete.
+  2014, subfield 11, journal, four works, citations 4, 3, 1 and 0.
+      mean 2. Reliable when the threshold is 3.
+  2018, subfield 22, conference, two works, citations 4 and 0.
+      mean 2. Not reliable at that threshold.
+  2024, subfield 33, journal, two uncited works. The threshold is 0.
 
 An xpack work cites one of them and must not count. One citation is a
 self-citation. A work that fails the English rule is in the status table and
@@ -23,15 +22,14 @@ import pytest
 import oam
 from oam import config
 
-# citing_id, cited_id, citing_year. The 4-year window keeps citing_year <= year + 3.
+# citing_id, cited_id, citing_year. The default build keeps every one of these.
 _EDGES = [
-    # 101 ends at 3 citations inside the window. 2017 is the last year that counts
-    # and 2018 is the first that does not.
+    # 101 ends at 4 citations. 2018 is outside a 4-year window.
     (103, 101, 2014),
     (104, 101, 2016),
     (201, 101, 2017),
     (103, 101, 2018),
-    # 102 ends at 2. The citation from 101 is a self-citation: they share an author.
+    # 102 ends at 3. The citation from 101 is a self-citation: they share an author.
     (103, 102, 2014),
     (104, 102, 2015),
     (101, 102, 2015),
@@ -39,7 +37,7 @@ _EDGES = [
     (104, 103, 2014),
     # 901 is xpack, so this citation of 104 must be dropped. 104 stays uncited.
     (901, 104, 2014),
-    # 201 ends at 3 inside the window. 2025 is year + 7.
+    # 201 ends at 4. 2025 is outside a 4-year window.
     (202, 201, 2018),
     (202, 201, 2019),
     (202, 201, 2020),

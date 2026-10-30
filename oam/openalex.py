@@ -57,17 +57,14 @@ def clean_orcid(orcid):
 
 
 def clean_doi(doi):
-    doi = str(doi).strip().lower()
-    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
-        if doi.startswith(prefix):
-            doi = doi[len(prefix):]
+    doi = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:)", "", str(doi).strip().lower())
     return doi or None
 
 
 def unique_dois(dois):
-    """The cleaned DOIs of an iterable, de-duplicated, order kept."""
+    """The cleaned DOIs of one DOI or many, de-duplicated, order kept."""
     wanted, seen = [], set()
-    for raw in dois:
+    for raw in values(dois):
         doi = clean_doi(raw)
         if doi and doi not in seen:
             seen.add(doi)

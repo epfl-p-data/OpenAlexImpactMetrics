@@ -60,8 +60,8 @@ def require_tables(tables, purpose):
         return
     listed = ", ".join(missing)
     raise RuntimeError(
-        f"{purpose} needs {listed}, which is not in {config.DATA_DIR}. "
-        f"Get it with oam.download(), or build it with oam.build()."
+        f"{purpose} needs {listed}, not found in {config.DATA_DIR}. "
+        f"Download the data with oam.download(), or build it with oam.build()."
     )
 
 

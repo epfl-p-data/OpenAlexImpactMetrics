@@ -33,7 +33,7 @@ oam.aggregate(ids)
 ids = oam.resolve(doi=["10.1038/nature12373", "10.1126/science.1244693"])
 ```
 
-Only DOIs present in the snapshot come back, so the list can be shorter than the input.
+Only DOIs present in the snapshot come back, so the list can be shorter than the input. `doi=` takes one DOI or a list, with or without `https://doi.org/`, and does not combine with the other arguments.
 
 ### A filter
 
@@ -65,9 +65,11 @@ To find an id from a name, or a name from an id:
 ```python
 oam.dimension("institutions", search="Lausanne")
 oam.dimension("institutions", ids="I5124864")
-oam.dimension("funders", search="Swiss National Science")
+oam.dimension("funders", search="Nationalfonds")   # the Swiss National Science Foundation
 oam.dimension("topics")          # every subfield, field and domain
 ```
+
+The search matches the names OpenAlex stores, which are sometimes in the local language: the Swiss National Science Foundation is `Schweizerischer Nationalfonds zur Förderung der Wissenschaftlichen Forschung`.
 
 ### A query OAM cannot express
 
@@ -119,13 +121,17 @@ why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
 
 `found` is false for an id the snapshot does not contain at all. The rules are described in [Scope](scope.md).
 
+A paper can pass every rule and still not be scored when `is_xpac` is true. It is an OpenAlex xpack record, and those are left out of the comparison: 46,548 papers on the 2026-10-14 snapshot. [Scope](scope.md#what-is-not-configurable) explains why.
+
 ## Scores per paper
 
 ```python
 works = oam.get_metrics(ids)
 ```
 
-One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations_4y`, `ncs_4y`, `citation_normalized_percentile_4y`, `is_in_top_10_percent_4y`, `is_in_top_1_percent_4y`, `window_is_complete`, `cited_by_count_in_scope`, `cited_by_count_outside_scope`, `openalex_fwci`, `openalex_citation_normalized_percentile`, `openalex_is_in_top_10_percent`, `openalex_is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
+One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations`, `ncs`, `citation_normalized_percentile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `openalex_fwci`, `openalex_citation_normalized_percentile`, `openalex_is_in_top_10_percent`, `openalex_is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
+
+`citations` and the scores built from it follow the citation window and the self-citation rule the data was built with. The download uses every citation up to the snapshot and keeps self-citations. `oam.status()` prints the choices.
 
 `oam.get_metrics(ids, explain=True)` adds the scope columns from `explain` to the same frame.
 
@@ -141,16 +147,16 @@ oam.aggregate(ids, by=["publication_year", "is_proceedings"])
 EPFL 2014, `by="is_proceedings"`:
 
 ```
- is_proceedings  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
-          False    3402   62851.0     18.47       2.25          23.49          3.79                True
-           True     749    2562.0      3.42       1.60          22.96          2.40                True
+ is_proceedings  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+          False    3402  239050.0     70.27       2.04          22.43          3.29
+           True     749    9728.0     12.99       1.52          20.29          2.27
 ```
 
-The 3,402 journal articles have an MNCS of 2.25. The 749 conference papers have an MNCS of 1.60.
+The 3,402 journal articles have an MNCS of 2.04. The 749 conference papers have an MNCS of 1.52.
 
-`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent_4y`, `is_in_top_1_percent_4y` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
+`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent`, `is_in_top_1_percent` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
 
-Every result carries `window_is_complete`. It is true when every paper in the group has had its four years, and it is not a `by` option: it describes the group, it does not split it.
+The scores follow the build. They are not arguments of `aggregate`. [Building](building.md#citation-window-and-self-citations) is where a window or the removal of self-citations is chosen.
 
 The other options:
 

@@ -20,8 +20,8 @@ _WORK_ID = re.compile(r"(?:https?://openalex\.org/)?[Ww](\d+)\s*$|^(\d+)\s*$")
 # Columns a caller may group by. Restricted because the value is interpolated into
 # SQL, and because grouping by anything else is rarely meaningful.
 GROUPABLE = ("publication_year", "subfield", "is_proceedings",
-             "institutions_distinct_count", "is_in_top_10_percent_4y",
-             "is_in_top_1_percent_4y", "cohort_is_reliable")
+             "institutions_distinct_count", "is_in_top_10_percent",
+             "is_in_top_1_percent", "cohort_is_reliable")
 
 
 def work_ids(ids):
@@ -88,14 +88,11 @@ def get_metrics(ids, explain=False):
             m.subfield,
             m.is_proceedings,
             m.institutions_distinct_count,
-            m.citations_4y,
-            m.ncs_4y,
-            m.citation_normalized_percentile_4y,
-            m.is_in_top_10_percent_4y,
-            m.is_in_top_1_percent_4y,
-            m.window_is_complete,
-            m.cited_by_count_in_scope,
-            m.cited_by_count_outside_scope,
+            m.citations,
+            m.ncs,
+            m.citation_normalized_percentile,
+            m.is_in_top_10_percent,
+            m.is_in_top_1_percent,
             m.openalex_fwci,
             m.openalex_citation_normalized_percentile,
             m.openalex_is_in_top_10_percent,
@@ -150,7 +147,7 @@ def _criteria(con):
             s.is_xpac,
             CASE WHEN s.work_id IS NULL THEN NULL ELSE list_filter([
                 {failed}
-            ], x -> x IS NOT NULL) END AS failed_criteria
+            ], lambda x: x IS NOT NULL) END AS failed_criteria
         FROM _ids i
         LEFT JOIN read_parquet('{config.table_glob("works_status")}') s
                ON s.work_id = i.work_id
@@ -169,9 +166,10 @@ def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
                 config.RELIABILITY_THRESHOLD works; small cohorts give unstable means
 
     Every column is named for the counting, and P_full is always the number of
-    works. window_is_complete is true when every work in the group has had its
-    four years. Ids that are absent or out of scope contribute nothing; compare
-    P_full against the number of ids you passed to see the coverage.
+    works. The scores are whatever the data was built with: by default every
+    citation up to the snapshot, self-citations included. Ids that are absent or
+    out of scope contribute nothing; compare P_full against the number of ids
+    you passed to see the coverage.
     """
     require_tables(("work_metrics",), "aggregate()")
     if counting not in ("full", "frac"):
@@ -208,12 +206,11 @@ def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
             {selected}
             count(*) AS P_full,
             {weighted}
-            sum(citations_4y * w) AS TCS_{counting},
-            sum(citations_4y * w) / sum(w) AS MCS_{counting},
-            sum(ncs_4y * w) / sum(w) AS MNCS_{counting},
-            100.0 * sum(is_in_top_10_percent_4y::INT * w) / sum(w) AS PP_top10_{counting},
-            100.0 * sum(is_in_top_1_percent_4y::INT * w) / sum(w) AS PP_top1_{counting},
-            bool_and(window_is_complete) AS window_is_complete
+            sum(citations * w) AS TCS_{counting},
+            sum(citations * w) / sum(w) AS MCS_{counting},
+            sum(ncs * w) / sum(w) AS MNCS_{counting},
+            100.0 * sum(is_in_top_10_percent::INT * w) / sum(w) AS PP_top10_{counting},
+            100.0 * sum(is_in_top_1_percent::INT * w) / sum(w) AS PP_top1_{counting}
         FROM works
         {grouping}
         {ordering}

@@ -1,7 +1,7 @@
 """Set-level indicators, full and fractional, against the same hand values.
 
-The reliable cohort is the 2014 journal cohort: citations 3, 2, 1, 0 and weights
-1, 1/2, 1, 1/4. Only the paper with 3 citations is in the top 10% and the top 1%.
+The reliable cohort is the 2014 journal cohort: citations 4, 3, 1, 0 and weights
+1, 1/2, 1, 1/4. Only the paper with 4 citations is in the top 10% and the top 1%.
 """
 
 import pytest
@@ -10,7 +10,7 @@ import oam
 
 _IDS = [101, 102, 103, 104]
 _WEIGHTS = {101: 1.0, 102: 0.5, 103: 1.0, 104: 0.25}
-_NCS = {101: 3 / 1.5, 102: 2 / 1.5, 103: 1 / 1.5, 104: 0.0}
+_NCS = {101: 2.0, 102: 1.5, 103: 0.5, 104: 0.0}
 
 
 def _weighted(column):
@@ -20,22 +20,22 @@ def _weighted(column):
 def test_full_counting_is_the_plain_average():
     row = oam.aggregate(_IDS, by=None).iloc[0]
     assert row.P_full == 4
-    assert row.TCS_full == 6
-    assert row.MCS_full == pytest.approx(1.5)
+    assert row.TCS_full == 8
+    assert row.MCS_full == pytest.approx(2.0)
     assert row.MNCS_full == pytest.approx(1.0)
     assert row.PP_top10_full == pytest.approx(25.0)
     assert row.PP_top1_full == pytest.approx(25.0)
-    assert bool(row.window_is_complete) is True
     assert "P_frac" not in row
+    assert "window_is_complete" not in row
 
 
 def test_fractional_counting_weights_by_institutions():
     row = oam.aggregate(_IDS, counting="frac", by=None).iloc[0]
     assert row.P_full == 4
     assert row.P_frac == pytest.approx(sum(_WEIGHTS.values()))
-    # citations 3, 2, 1, 0 with weights 1, 1/2, 1, 1/4
-    assert row.TCS_frac == pytest.approx(3 * 1 + 2 * 0.5 + 1 * 1 + 0)
-    assert row.MCS_frac == pytest.approx(_weighted({101: 3, 102: 2, 103: 1, 104: 0}))
+    # citations 4, 3, 1, 0 with weights 1, 1/2, 1, 1/4
+    assert row.TCS_frac == pytest.approx(4 * 1 + 3 * 0.5 + 1 * 1 + 0)
+    assert row.MCS_frac == pytest.approx(_weighted({101: 4, 102: 3, 103: 1, 104: 0}))
     assert row.MNCS_frac == pytest.approx(_weighted(_NCS))
     assert row.PP_top10_frac == pytest.approx(100 * _WEIGHTS[101] / sum(_WEIGHTS.values()))
     assert row.PP_top1_frac == pytest.approx(100 * _WEIGHTS[101] / sum(_WEIGHTS.values()))

@@ -275,10 +275,6 @@ def built_criteria():
 # cohort_is_reliable to drop them.
 RELIABILITY_THRESHOLD = 500
 
-# Citations in the publication year and the three following years, the window
-# OpenAlex and Scopus use for the FWCI. Counted during the build.
-WINDOW_YEARS = 4
-
 
 # ---------------------------------------------------------------------------
 # DuckDB

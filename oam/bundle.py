@@ -45,6 +45,7 @@ def installed():
         "format": meta.get("format"),
         "oam_version": meta.get("oam_version"),
         "scope_hash": meta.get("scope_hash"),
+        "analysis": meta.get("analysis"),
         "files": meta.get("files") or {},
     }
 
@@ -122,6 +123,7 @@ def export(path):
         files[rel] = _file_record(target, None)
         written.append((target, rel))
 
+        from .metrics import recorded_analysis
         meta = {
             "format": config.BUNDLE_FORMAT,
             "oam_version": _version(),
@@ -129,6 +131,7 @@ def export(path):
             "record_count": snapshot.get("record_count"),
             "scope": snapshot.get("scope"),
             "scope_hash": config.scope_hash(snapshot.get("scope")),
+            "analysis": recorded_analysis(),
             "files": files,
         }
         bundle_path = staging / "bundle.json"
@@ -144,35 +147,11 @@ def export(path):
                 if src.suffix == ".parquet":
                     src.unlink()
         os.replace(tmp_tar, dest)
-        light = out_dir / f"oam-metrics-{snapshot.get('date')}.parquet"
-        rows = _write_light(con, snapshot, light)
-        print(f"  ✓ {'metrics parquet':<20} {rows:>15,} rows  {human_bytes(light.stat().st_size)}")
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
     print(f"\n✓ {dest.name}  {human_bytes(dest.stat().st_size)}")
     return dest
-
-
-def _write_light(con, snapshot, target):
-    """One sorted Parquet of the scores, with the build recorded in the file."""
-    recorded = config.METRICS_DIR / "_state" / "stages.json"
-    settings = {}
-    if recorded.is_file():
-        stages = json.loads(recorded.read_text())
-        settings = next(iter(stages.values()), {}).get("config") or {}
-    src = f"read_parquet('{config.table_glob('work_metrics')}', hive_partitioning=true)"
-    columns = [row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()]
-    exclude = " EXCLUDE (updated_date)" if "updated_date" in columns else ""
-    metadata = {
-        "oam_version": _version(),
-        "snapshot": snapshot.get("date") or "",
-        "scope": json.dumps(snapshot.get("scope"), separators=(",", ":")),
-        "settings": json.dumps(settings, separators=(",", ":")),
-        "license": "CC0-1.0",
-    }
-    return copy_parquet(
-        con, f"SELECT *{exclude} FROM {src} ORDER BY work_id", target, metadata=metadata)
 
 
 def _write_table(con, table, target):
@@ -224,7 +203,7 @@ def _version():
 # ---------------------------------------------------------------------------
 
 def download(source=None, replace=False, record=None):
-    """Install the published data into the data directory.
+    """Install the published data into the data directory. Returns its snapshot date.
 
     source  None downloads from Zenodo. Otherwise a .tar path, a directory
             containing one, or an https URL.
@@ -240,7 +219,7 @@ def download(source=None, replace=False, record=None):
         src = _from_zenodo(record, replace)
         if src is None:
             print(f"✓ data already installed at {config.DATA_DIR}")
-            return installed()
+            return installed()["snapshot"]
     else:
         src = _locate(source)
     path = _materialize(src)
@@ -248,7 +227,7 @@ def download(source=None, replace=False, record=None):
     _check_format(meta, path)
     if not replace and _archive_already_present(meta):
         print(f"✓ data already installed at {config.DATA_DIR}")
-        return installed()
+        return installed()["snapshot"]
 
     incoming = meta.get("snapshot")
     existing = _existing_snapshot()
@@ -261,7 +240,7 @@ def download(source=None, replace=False, record=None):
         _wipe_outputs()
     _install(path, meta)
     print(f"✓ installed snapshot {incoming} into {config.DATA_DIR}")
-    return installed()
+    return installed()["snapshot"]
 
 
 def _satisfied():
@@ -402,11 +381,16 @@ def _zenodo_file(record=None):
 def _materialize(src):
     """A local path, downloading an URL into the data directory's cache first.
 
-    The cache name is fixed: Zenodo's download link ends in ``content``.
+    The cache file is named after the URL, so a partial download is only resumed
+    from the same file, never from another Zenodo version. Leftovers are removed.
     """
     if not isinstance(src, str) or not src.startswith(("http://", "https://")):
         return Path(src)
-    dest = config.DATA_DIR / "_downloads" / "oam.tar"
+    cache = config.DATA_DIR / "_downloads"
+    dest = cache / f"{hashlib.sha256(src.encode()).hexdigest()[:16]}.tar"
+    for old in cache.glob("*.tar"):
+        if old != dest:
+            old.unlink()
     _download_file(src, dest)
     return dest
 
@@ -482,6 +466,7 @@ def _install(path, meta):
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
+    print(f"▶ Unpacking and checking {len(meta['files'])} files", flush=True)
     try:
         _safe_extract(path, staging)
         _verify(staging, meta)

@@ -212,7 +212,8 @@ def resolve(institution=None, author=None, doi=None, year=None,
     institution   institution id; matches the whole lineage, so a parent picks up
                   its labs and hospitals
     author        author id
-    doi           a list of DOIs, resolved on their own and ignoring the rest
+    doi           one DOI or a list of them, on its own: it does not combine with
+                  the other arguments
     year          2020, (2014, 2023) or "2014-2023"
     corresponding restrict institution=, country=, author= and orcid= to the works
                   they corresponded on
@@ -239,6 +240,10 @@ def resolve(institution=None, author=None, doi=None, year=None,
     require_tables(config.RESOLVE_TABLES, "resolve()")
 
     if doi is not None:
+        if institution or author or year or corresponding or proceedings is not None \
+                or any(dimensions.values()):
+            raise ValueError("doi= does not combine with other arguments; filter "
+                             "oam.get_metrics(ids) instead")
         return resolve_dois(doi)
 
     sql = local_sql(year=year, corresponding=corresponding, proceedings=proceedings,

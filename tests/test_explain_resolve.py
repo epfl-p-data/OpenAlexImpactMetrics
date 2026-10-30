@@ -33,7 +33,7 @@ def test_explain_names_the_failed_rule():
 def test_out_of_scope_work_is_reported_but_not_scored():
     row = oam.get_metrics([401]).iloc[0]
     assert bool(row.in_scope) is False
-    assert row.ncs_4y != row.ncs_4y  # NaN
+    assert row.ncs != row.ncs  # NaN
 
 
 def test_resolve_institution_country_and_year():
@@ -45,6 +45,9 @@ def test_resolve_institution_country_and_year():
 
 def test_resolve_doi_orcid_and_field():
     assert oam.resolve(doi=["https://doi.org/10.1000/oam-101", "10.1000/missing"]) == [101]
+    assert oam.resolve(doi="https://dx.doi.org/10.1000/OAM-101") == [101]
+    with pytest.raises(ValueError, match="doi="):
+        oam.resolve(doi=["10.1000/oam-101"], year=2014)
     assert oam.resolve(orcid="https://orcid.org/0000-0001-0000-0001") == [101]
     # Field 17 is Computer science, which contains subfield 11. 401 is out of
     # scope and 901 is xpack; resolve returns both, scoring does not.

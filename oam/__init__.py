@@ -56,6 +56,7 @@ _STEPS = ("store", "metrics", "resolve")
 
 
 def build(reset=False, steps=None, workers=8, include_xpack=False,
+          citation_window=None, exclude_self_citations=False,
           refresh_manifest=False, limit=None, smallest=False, stage=None):
     """Build the store (1), the metric layers (2) and the resolve warehouse (3).
 
@@ -71,9 +72,16 @@ def build(reset=False, steps=None, workers=8, include_xpack=False,
                         warehouse.
     stage               step 2 only: rebuild the metric layers from this stage on.
     include_xpack       keep xpack works in the metric population.
+    citation_window     step 2 only. None counts every citation up to the snapshot.
+                        An integer n counts the publication year and the n - 1
+                        years after it, so 4 is the publication year plus three.
+    exclude_self_citations
+                        step 2 only. Drop citations between papers that share an
+                        OpenAlex author. The default keeps them.
     refresh_manifest    refetch the snapshot manifest. A new release invalidates
                         an existing store.
     """
+    _metrics.validate_analysis(citation_window, exclude_self_citations)
     selected = _steps(steps)
     with _report.tee("build"):
         if reset:
@@ -89,7 +97,9 @@ def build(reset=False, steps=None, workers=8, include_xpack=False,
                 workers=workers, limit=limit, smallest=smallest,
                 refresh_manifest=refresh_manifest),
             "metrics": lambda: _metrics.build(
-                stage=stage, include_xpack=include_xpack),
+                stage=stage, include_xpack=include_xpack,
+                citation_window=citation_window,
+                exclude_self_citations=exclude_self_citations),
             "resolve": lambda: _resolve_store.build(
                 refresh_manifest=refresh_manifest),
         }
@@ -122,26 +132,21 @@ def _steps(steps):
 
 
 def status():
-    """What is installed or built, how big it is, and which snapshot it is."""
+    """Print what is installed or built, how big it is, and which snapshot it is."""
     bundle = installed()
-    info = {
-        "data_dir": str(config.DATA_DIR),
-        "bundle": bundle,
-        "store": _store.status(),
-        "metrics": _metrics.status(),
-        "resolve": _resolve_store.status(),
-    }
-    print(f"data: {info['data_dir']}")
+    print(f"data: {config.DATA_DIR}")
     if bundle:
-        print(f"bundle: snapshot {bundle['snapshot']}\n")
+        print(f"bundle: snapshot {bundle['snapshot']}")
     elif config.STORE_STATE_PATH.is_file():
         date = json.loads(config.STORE_STATE_PATH.read_text()).get("date")
-        print(f"bundle: local build, snapshot {date}\n")
+        print(f"bundle: local build, snapshot {date}")
     else:
-        print("bundle: none\n")
+        print("bundle: none")
+    analysis = (bundle or {}).get("analysis") or _metrics.recorded_analysis()
+    described = _metrics.describe_analysis(analysis)
+    print(f"analysis: {described}\n" if described else "analysis: not recorded\n")
     _store.print_status()
     print()
     _metrics.print_status()
     print()
     _resolve_store.print_status()
-    return info

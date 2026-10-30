@@ -97,7 +97,7 @@ DIMENSIONS_SQL = f"""
         citation_normalized_percentile.is_in_top_1_percent AS openalex_is_in_top_1_percent,
         list_transform(
             COALESCE(referenced_works, []),
-            x -> TRY_CAST(substr(x, 23) AS BIGINT)
+            lambda x: TRY_CAST(substr(x, 23) AS BIGINT)
         ) AS refs"""
 
 
@@ -127,16 +127,16 @@ DIMENSIONS_SQL = f"""
 
 _NUM = config.numeric_id_sql
 _AUTHORS = "COALESCE(authorships, [])"
-_CORRESPONDING = f"list_filter({_AUTHORS}, a -> COALESCE(a.is_corresponding, FALSE))"
+_CORRESPONDING = f"list_filter({_AUTHORS}, lambda a: COALESCE(a.is_corresponding, FALSE))"
 
 
 def _lineage_of(authorships):
     """Distinct ids of every institution in the lineage of every institution on
     `authorships`. Two flattens because the nesting is authorship -> institution ->
     lineage and flatten() removes one level at a time."""
-    per_institution = f"list_transform(COALESCE(i.lineage, []), l -> {_NUM('l')})"
-    per_authorship = f"flatten(list_transform(a.institutions, i -> {per_institution}))"
-    return f"list_distinct(flatten(list_transform({authorships}, a -> {per_authorship})))"
+    per_institution = f"list_transform(COALESCE(i.lineage, []), lambda l: {_NUM('l')})"
+    per_authorship = f"flatten(list_transform(a.institutions, lambda i: {per_institution}))"
+    return f"list_distinct(flatten(list_transform({authorships}, lambda a: {per_authorship})))"
 
 
 RESOLVE_DIMENSIONS_SQL = f"""
@@ -145,20 +145,20 @@ RESOLVE_DIMENSIONS_SQL = f"""
         open_access.oa_status AS oa_status,
         COALESCE(open_access.is_oa, FALSE) AS is_oa,
         list_distinct(list_transform(
-            COALESCE(funders, []), f -> {_NUM("f.id")}
+            COALESCE(funders, []), lambda f: {_NUM("f.id")}
         )) AS funder_ids,
-        list_distinct(list_transform({_AUTHORS}, a -> {_NUM("a.author.id")})) AS author_ids,
+        list_distinct(list_transform({_AUTHORS}, lambda a: {_NUM("a.author.id")})) AS author_ids,
         list_distinct(list_transform(
-            {_CORRESPONDING}, a -> {_NUM("a.author.id")}
+            {_CORRESPONDING}, lambda a: {_NUM("a.author.id")}
         )) AS corresponding_author_ids,
         {_lineage_of(_AUTHORS)} AS institution_ids,
         list_distinct(flatten(list_transform(
-            {_AUTHORS}, a -> list_transform(a.institutions, i -> {_NUM("i.id")})
+            {_AUTHORS}, lambda a: list_transform(a.institutions, lambda i: {_NUM("i.id")})
         ))) AS direct_institution_ids,
         {_lineage_of(_CORRESPONDING)} AS corresponding_institution_ids,
         list_distinct(list_transform(
-            list_filter({_AUTHORS}, a -> a.author.orcid IS NOT NULL),
-            a -> {{'author_id': {_NUM("a.author.id")},
+            list_filter({_AUTHORS}, lambda a: a.author.orcid IS NOT NULL),
+            lambda a: {{'author_id': {_NUM("a.author.id")},
                    'orcid': {config.ORCID_SQL.format("a.author.orcid")}}}
         )) AS author_orcids"""
 

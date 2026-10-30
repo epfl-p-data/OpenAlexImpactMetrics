@@ -20,30 +20,13 @@ Take `W2103094658`, a 2014 conference paper in Artificial Intelligence.
 oam.get_metrics(["W2103094658"])
 ```
 
-| Column | Value |
-|---|---|
-| `citations_4y` | 10 |
-| `ncs_4y` | 2.81 |
-| `citation_normalized_percentile_4y` | 0.930 |
-| `is_in_top_10_percent_4y` | true |
-| `is_in_top_1_percent_4y` | false |
-| `window_is_complete` | true |
-| `cited_by_count_in_scope` | 37 |
-| `cited_by_count_outside_scope` | 15 |
-| `cohort_n_works` | 14,698 |
-| `openalex_fwci` | 4.15 |
-| `openalex_citation_normalized_percentile` | 0.958 |
-
 | Column | Meaning |
 |---|---|
-| `citations_4y` | Citations in the publication year and the three following years, excluding self-citations |
-| `ncs_4y` | `citations_4y` divided by the cohort's average. 1 means exactly average. This is the normalised citation score the MNCS is built from |
-| `citation_normalized_percentile_4y` | Mid-rank in the cohort: the papers below this one, plus half of the papers tied with it, divided by the size of the cohort. Between 0 and 1. Tied papers share a value, and an uncited paper is not given 0 |
-| `is_in_top_10_percent_4y` | `citations_4y` is at or above the cohort's 90th percentile, and at least 1. Papers tied on the threshold are all counted in |
-| `is_in_top_1_percent_4y` | The same at the 99th percentile, and at least 1 |
-| `window_is_complete` | The four years have passed. See [Citation window](#citation-window) |
-| `cited_by_count_in_scope` | All citations from in-scope papers, including self-citations. This is the in-scope part of OpenAlex's `cited_by_count` |
-| `cited_by_count_outside_scope` | OpenAlex's `cited_by_count` minus the in-scope count, and never negative |
+| `citations` | In-scope citations, counted the way the data was built. See [Citation window](#citation-window) and [Self-citations](#self-citations) |
+| `ncs` | `citations` divided by the cohort's average. 1 means exactly average. This is the normalised citation score the MNCS is built from |
+| `citation_normalized_percentile` | Mid-rank in the cohort: the papers below this one, plus half of the papers tied with it, divided by the size of the cohort. Between 0 and 1. Tied papers share a value, and an uncited paper is not given 0 |
+| `is_in_top_10_percent` | `citations` is at or above the cohort's 90th percentile, and at least 1. Papers tied on the threshold are all counted in |
+| `is_in_top_1_percent` | The same at the 99th percentile, and at least 1 |
 | `cohort_n_works` | Papers in the cohort |
 | `cohort_is_reliable` | The cohort has at least 500 papers |
 
@@ -56,12 +39,11 @@ For a set of papers — an institution, a lab, a funder's portfolio — OAM summ
 | Column | Meaning |
 |---|---|
 | `P_full` | Number of papers scored. Returned for both counting methods |
-| `MNCS_full` | Average `ncs_4y`. 1 is the world average |
-| `PP_top10_full` | Percentage of papers with `is_in_top_10_percent_4y`. A little above 10 for the world, because ties at the threshold are counted in. On this snapshot a complete year falls between 10.46 and 11.99 |
-| `PP_top1_full` | Percentage of papers with `is_in_top_1_percent_4y`. A little above 1 for the world. On this snapshot a complete year falls between 1.02 and 1.13 |
-| `TCS_full` | Total `citations_4y` |
-| `MCS_full` | Average `citations_4y`, not normalised |
-| `window_is_complete` | True when every paper in the row has had its four years |
+| `MNCS_full` | Average `ncs`. 1 is the world average |
+| `PP_top10_full` | Percentage of papers with `is_in_top_10_percent`. A little above 10 for the world, because ties at the threshold are counted in |
+| `PP_top1_full` | Percentage of papers with `is_in_top_1_percent`. A little above 1 for the world |
+| `TCS_full` | Total `citations` |
+| `MCS_full` | Average `citations`, not normalised |
 
 EPFL in 2014:
 
@@ -71,17 +53,17 @@ oam.aggregate(ids).round(2)
 ```
 
 ```
- publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
-             2014    4151   65413.0     15.76       2.13          23.39          3.54                True
+ publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+             2014    4151  248778.0     59.93       1.94          22.04          3.11
 ```
 
 `aggregate` returns one row per publication year by default. Pass `by=None` for a single row covering the whole set.
 
-4,151 papers are scored. The MNCS is 2.13, so they are cited a little more than twice as often as comparable papers. 23.4% are in the top 10% of their cohort and 3.5% in the top 1%. The window is complete.
+4,151 papers are scored. The MNCS is 1.94, so they are cited just under twice as often as comparable papers. 22.0% are in the top 10% of their cohort and 3.1% in the top 1%.
 
 The percentile is a per-paper column. The summary does not average it; PP(top 10%) and PP(top 1%) are how the ranking shows up at the set level.
 
-Over the 48,656,456 papers with a complete window and a reliable cohort, the MNCS is 1.00, PP(top 10%) is 10.76% and PP(top 1%) is 1.04%. Among complete years with at least 100,000 such papers, PP(top 10%) runs from 10.46 to 11.99 and PP(top 1%) from 1.02 to 1.13. Earlier years are at the top of that range: many papers there share a small citation count, and every paper on the threshold is counted in.
+Over the 48,656,456 papers published at least four years before the snapshot and in a reliable cohort, the MNCS is 1.00, PP(top 10%) is 10.18% and PP(top 1%) is 1.02%. Among those years with at least 100,000 such papers, PP(top 10%) runs from 10.09 to 10.37 and PP(top 1%) from 1.01 to 1.04. Ties at the threshold are counted in, which is why both sit a little above the name.
 
 ## Full and fractional counting
 
@@ -97,11 +79,11 @@ oam.aggregate(ids, counting="frac")
 EPFL in 2014, fractional counting:
 
 ```
- publication_year  P_full  P_frac  TCS_frac  MCS_frac  MNCS_frac  PP_top10_frac  PP_top1_frac  window_is_complete
-             2014    4151 2061.93   27993.0     13.58       1.89          21.56          2.97                True
+ publication_year  P_full  P_frac  TCS_frac  MCS_frac  MNCS_frac  PP_top10_frac  PP_top1_frac
+             2014    4151 2061.93 105536.17     51.18       1.73          19.63          2.73
 ```
 
-The same 4,151 papers weigh 2,062 once each institution's share is taken. The MNCS is 1.89, and 21.6% are in the top 10%.
+The same 4,151 papers weigh 2,062 once each institution's share is taken. The MNCS is 1.73, and 19.6% are in the top 10%.
 
 ## Which papers are scored
 
@@ -109,25 +91,33 @@ EPFL's name is on 5,788 works from 2014, and 4,213 are in scope. Two things remo
 
 **Scope.** Only papers inside the scope get a score: by default, English-language articles in a core journal or a conference proceedings, with an institutional affiliation, a subfield and a reference list, and not retracted or front matter. 4,213 of the 5,788 pass. The rest are preprints, datasets, book chapters and similar. Scope also decides which citations count: a citation is only counted when the citing paper is itself in scope. See [Scope](scope.md) for the rules, and [Querying](querying.md#which-papers-are-scored) to see which rule removed which paper.
 
-**Small cohorts.** A cohort with fewer than 500 papers has an unstable average. Its papers still get an `ncs_4y`, with `cohort_is_reliable` set to false, but `aggregate` leaves them out. 62 of the 4,213 are in such cohorts. To keep them, pass `reliable_only=False`.
+**Small cohorts.** A cohort with fewer than 500 papers has an unstable average. Its papers still get an `ncs`, with `cohort_is_reliable` set to false, but `aggregate` leaves them out. 62 of the 4,213 are in such cohorts. To keep them, pass `reliable_only=False`.
 
 ## Citation window
 
-Every score uses one window: the publication year and the three following years. A 2014 paper is cited by papers from 2014, 2015, 2016 and 2017. This is the window OpenAlex and Scopus use for the field-weighted citation impact. It is not the window of the Leiden Ranking, which counts citations until the end of the year after a multi-year period.
+By default a citation counts whenever it was made, up to the snapshot. A 2014 paper can be cited by a paper from 2024.
 
-`window_is_complete` is true when those four years are already over, which is when the publication year plus three is earlier than the snapshot's year. On the snapshot of 14 October 2026, that is every paper from 2022 and before. Papers from 2023, 2024 and 2025 are still scored, and `window_is_complete` is false: their `citations_4y` is whatever has arrived so far, not a four-year count. A row of `aggregate` has `window_is_complete` true only when every paper in it does.
+The window is chosen when the metric layers are built, and the data keeps one count. A window of `n` counts the publication year and the `n - 1` years after it, so `4` is the publication year and the three following years. That is the window OpenAlex and Scopus use for the field-weighted citation impact. It is not the window of the Leiden Ranking, which counts citations until the end of the first year after a multi-year publication period, so the papers in one period have windows of different lengths.
 
-Counted up to the snapshot, and with self-citations kept, the MNCS for EPFL in 2014 was 1.94. With the four-year window and self-citations removed, it is 2.13.
+```python
+oam.build(steps="metrics", citation_window=4)
+```
+
+A paper from 2025 scored with a window of 4 has not had four years. It is still scored, on the citations that have arrived. The publication year is enough to see that; there is no separate flag.
+
+`oam.status()` prints the window the data was built with. A published archive records it in `bundle.json`.
 
 ## Self-citations
 
-A self-citation is a citation where the citing paper and the cited paper share an OpenAlex author. Those citations are removed from `citations_4y`, and so from every score. There is no option to keep them. `cited_by_count_in_scope` still includes them, because that column is the in-scope part of OpenAlex's own count rather than a score.
+A self-citation is a citation where the citing paper and the cited paper share an OpenAlex author. By default those citations are kept, which is what the OpenAlex and Scopus field-weighted citation impact do.
 
-Inside a complete four-year window, 19.7% of the in-scope citations are self-citations. Those are the ones left out of `citations_4y`.
+`exclude_self_citations=True` removes them, and the cohort averages are computed without them. The Leiden Ranking excludes author self-citations. The data still holds one set of scores, so this is a choice about how it is built, not an argument of `aggregate`.
 
-This is the same practice as the Leiden Ranking. The OpenAlex and Scopus field-weighted citation impact both keep self-citations.
+```python
+oam.build(steps="metrics", citation_window=4, exclude_self_citations=True)
+```
 
-Two caveats. OpenAlex decides which names are the same person, and that decision is wrong in both directions: some real self-citations stay in, and some citations by a different person are removed. A paper with thousands of authors can lose most of its citations, because a citing paper from the same collaboration almost always shares an author.
+Two caveats, when they are removed. OpenAlex decides which names are the same person, and that decision is wrong in both directions: some real self-citations stay in, and some citations by a different person are removed. A paper with thousands of authors can lose most of its citations, because a citing paper from the same collaboration almost always shares an author.
 
 ## OAM and OpenAlex
 
@@ -139,14 +129,12 @@ The cohort differs. OAM groups by publication year, subfield and venue type, and
 
 | OAM | OpenAlex | What differs |
 |---|---|---|
-| `citations_4y` | the count behind `fwci` | Both use the publication year and the three following years. OAM drops self-citations and counts only in-scope citing papers. OpenAlex keeps self-citations and counts every citing work |
-| `ncs_4y` | `fwci` | Both divide the count by the mean of the group. The groups and the counts differ, as above |
-| `citation_normalized_percentile_4y` | `citation_normalized_percentile.value` | OAM uses the mid-rank of `citations_4y`. OpenAlex uses all-time citations and `(rank − 1) / (max rank + 1)`, with tied papers taking the lowest rank, so an uncited paper is 0 |
-| `is_in_top_10_percent_4y` | `citation_normalized_percentile.is_in_top_10_percent` | OAM flags every paper at or above the cohort's 90th percentile that has at least one citation. OpenAlex flags from its own percentile |
-| `is_in_top_1_percent_4y` | `citation_normalized_percentile.is_in_top_1_percent` | The same, at the 99th percentile |
-| `cited_by_count_in_scope` | part of `cited_by_count` | In-scope citing papers, all years, self-citations kept |
-| `cited_by_count_outside_scope` | the rest of `cited_by_count` | OpenAlex's count minus the in-scope count. The difference is clamped at 0 |
+| `citations` | the count behind `fwci` | The published data counts every in-scope citation up to the snapshot, self-citations included. OpenAlex uses the publication year and the three following years, keeps self-citations, and counts every citing work. A build can choose that window, and can drop self-citations |
+| `ncs` | `fwci` | Both divide the count by the mean of the group. The groups and the counts differ, as above |
+| `citation_normalized_percentile` | `citation_normalized_percentile.value` | OAM uses the mid-rank of `citations`. OpenAlex uses all-time citations and `(rank − 1) / (max rank + 1)`, with tied papers taking the lowest rank, so an uncited paper is 0 |
+| `is_in_top_10_percent` | `citation_normalized_percentile.is_in_top_10_percent` | OAM flags every paper at or above the cohort's 90th percentile that has at least one citation. OpenAlex flags from its own percentile |
+| `is_in_top_1_percent` | `citation_normalized_percentile.is_in_top_1_percent` | The same, at the 99th percentile |
 
-Where both scores are present, on a complete window and a reliable cohort, `ncs_4y` and `openalex_fwci` have a correlation of 0.70. OpenAlex marks the top 10% from a percentile of 0.90 and the top 1% from 0.99. On this snapshot, 102 papers have more in-scope citations than OpenAlex's `cited_by_count`, and their `cited_by_count_outside_scope` is 0.
+OpenAlex marks the top 10% from a percentile of 0.90 and the top 1% from 0.99.
 
 OpenAlex's description of these fields is in its help center, and the calculation is in its 2025 metric code.

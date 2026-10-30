@@ -3,7 +3,15 @@
 [![PyPI](https://img.shields.io/pypi/v/openalex-metrics)](https://pypi.org/project/openalex-metrics/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23493154.svg)](https://doi.org/10.5281/zenodo.23493154)
 
-OAM tells you whether a set of papers was cited more or less than comparable papers. You can score a university, a researcher, a country, a funder's portfolio or a list of DOIs. It runs on your own machine, and the data comes from [OpenAlex](https://openalex.org).
+OAM computes citation impact metrics for any set of papers: a university, a researcher, a country, a funder's portfolio or a list of DOIs. It tells you whether those papers were cited more or less than comparable papers worldwide. It runs on your own machine, and the data comes from [OpenAlex](https://openalex.org).
+
+Comparing papers is only fair within a well-defined scope. OpenAlex indexes almost everything, not only research papers but also preprints, datasets, theses and editorials, and these are cited very differently. OAM keeps only peer-reviewed research papers, about 13% of OpenAlex. Only these papers are scored, and only the citations they make are counted. [Which papers are scored](#which-papers-are-scored) lists the rules.
+
+## How this differs from OpenAlex
+
+OpenAlex already gives most works a citation score, the FWCI. It compares each work with everything OpenAlex indexes, and it counts citations from anything, including preprints, datasets and theses. OAM compares a paper only with papers in its scope, and counts only citations from that scope.
+
+A paper is compared with its cohort: the same subfield, the same publication year, and journal or conference. OpenAlex groups by year, work type and subfield, and splits articles into journal and conference articles. The download counts every citation up to the snapshot, self-citations included. The FWCI also keeps self-citations, but counts only the publication year and the three following years. The two scores are stored side by side. [OAM and OpenAlex](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#oam-and-openalex) lists each column and the difference.
 
 ## Get started
 
@@ -13,7 +21,7 @@ Python 3.11 or newer.
 pip install openalex-metrics
 ```
 
-Download the data once. This fetches the latest release from [Zenodo](https://doi.org/10.5281/zenodo.23493154), 11.8 GiB, and checks every file:
+Download the data once. This fetches the latest release from [Zenodo](https://doi.org/10.5281/zenodo.23493154), 11.9 GiB, and checks every file:
 
 ```python
 import oam
@@ -21,7 +29,7 @@ import oam
 oam.download()
 ```
 
-The files go to `~/oam-data`. To put them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable. You need about 25 GB free while the archive is unpacked.
+The files go to `~/oam-data`. To put them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable. You need about 25 GB free while the archive is unpacked, and 12 GB once it is installed.
 
 Then score a set of papers:
 
@@ -50,12 +58,12 @@ oam.aggregate(ids).round(2)
 ```
 
 ```
- publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
-             2020    4433   89507.0     20.19       1.86          20.53          3.09                True
-             2021    4498   81217.0     18.06       1.74          19.05          2.82                True
-             2022    4349   81253.0     18.68       1.85          19.29          2.67                True
-             2023    4470   68835.0     15.40       1.68          18.59          2.77               False
-             2024    4457   47310.0     10.61       1.76          19.14          3.14               False
+ publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+             2020    4433  200062.0     45.13       1.95          21.52          3.41
+             2021    4498  150841.0     33.54       1.80          20.08          3.11
+             2022    4349  120403.0     27.69       1.89          20.74          2.90
+             2023    4470   85462.0     19.12       1.74          20.25          3.02
+             2024    4457   58542.0     13.13       1.83          21.11          3.43
 ```
 
 ### A researcher
@@ -68,11 +76,9 @@ oam.aggregate(ids, by=None).round(2)
 ```
 
 ```
- P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
-    391   27140.0     69.41       6.23          61.64         18.41               False
+ P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+    391   91886.0     235.0       5.97          59.34         14.83
 ```
-
-`window_is_complete` is false because the set includes papers whose four years have not elapsed.
 
 ### A country
 
@@ -84,12 +90,12 @@ oam.aggregate(ids).round(2)
 ```
 
 ```
- publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full  window_is_complete
-             2020   52142  966664.0     18.54       1.71          17.67          2.63                True
-             2021   55231  944519.0     17.10       1.71          17.51          2.73                True
-             2022   53311  801017.0     15.03       1.64          17.21          2.61                True
-             2023   52502  722339.0     13.76       1.65          17.44          2.75               False
-             2024   52768  494686.0      9.37       1.68          17.55          2.73               False
+ publication_year  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+             2020   52142 2108683.0     40.44       1.80          18.78          2.87
+             2021   55231 1744205.0     31.58       1.78          18.79          3.02
+             2022   53311 1206510.0     22.63       1.71          18.77          2.88
+             2023   52502  887357.0     16.90       1.71          19.19          3.08
+             2024   52768  605921.0     11.48       1.75          19.27          2.99
 ```
 
 You can select papers the same way by author, funder, journal, field or DOI. [Querying](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/querying.md) lists every option.
@@ -97,17 +103,12 @@ You can select papers the same way by author, funder, journal, field or DOI. [Qu
 ## Reading the numbers
 
 - **P_full** is the number of papers that received a score.
-- **MNCS_full** compares those papers with similar papers worldwide, using citations from the publication year and the three following years, without self-citations. The world average is 1. A value of 2 means cited twice as much.
+- **MNCS_full** compares those papers with similar papers worldwide. The download counts every citation up to the snapshot, self-citations included. The world average is 1. A value of 2 means cited twice as much.
 - **PP_top10_full** is the share of papers among the 10% most cited of their cohort. For the world it sits a little above 10%, because papers tied at the threshold are all counted in. **PP_top1_full** is the same for the top 1%.
-- **window_is_complete** is true when every paper in that row has had its four years. Recent years are scored anyway, and the flag says the count is not a four-year count yet.
+
+A recent paper has had less time to be cited. It is compared only with papers from its own year, so MNCS and the top shares can be read across years, while TCS and MCS fall for recent years. To count a fixed number of years, or to drop self-citations, the data is rebuilt with that choice. [Building](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md#citation-window-and-self-citations) shows the arguments.
 
 [How the scores work](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md) explains the other columns, and full and fractional counting.
-
-## How this differs from OpenAlex
-
-OpenAlex already gives most works a citation score, the FWCI. It compares each work with everything OpenAlex indexes, and it counts citations from anything, including preprints, datasets and theses. OAM compares a paper only with peer-reviewed research papers like it, and counts only the citations that come from such papers.
-
-A paper is compared with its cohort: the same subfield, the same publication year, and journal or conference. OpenAlex groups by year, work type and subfield, and splits articles into journal and conference articles. OAM also drops self-citations, which the OpenAlex and Scopus FWCI keep. The two scores are stored side by side. [OAM and OpenAlex](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#oam-and-openalex) lists each column and the difference.
 
 ## Which papers are scored
 
@@ -130,8 +131,10 @@ These rules are fixed for the data you download. To score a different set of pap
 The data is built from the public OpenAlex snapshot and released under CC0. `oam.download()` installs the latest version. To keep one snapshot, pass its Zenodo record id, listed under Versions on the [Zenodo page](https://doi.org/10.5281/zenodo.23493154):
 
 ```python
-oam.download(record=23493155)    # always the 2026-10-14 snapshot
+oam.download(record=23770181)    # the 2026-10-14 snapshot, built with OAM 0.2
 ```
+
+Record 23493155 is the same snapshot date built with OAM 0.1. OAM 0.2 does not read it.
 
 If you publish results, cite the version you used. Each version has its own DOI, and `oam.status()` shows which snapshot is installed.
 
