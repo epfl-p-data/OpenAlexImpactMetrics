@@ -173,6 +173,9 @@ def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
     citation up to the snapshot, self-citations included. Ids that are absent or
     out of scope contribute nothing; compare P_full against the number of ids
     you passed to see the coverage.
+
+    Grouping by subfield adds subfield_name, and within the other groups puts
+    the largest subfield first.
     """
     require_tables(("work_metrics",), "aggregate()")
     if counting not in ("full", "frac"):
@@ -190,10 +193,22 @@ def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
     if counting == "frac":
         filters.append("m.institutions_distinct_count > 0")
 
-    selected = "".join(f"{g}, " for g in groups)
+    columns = []
+    for g in groups:
+        columns += [g, "subfield_name"] if g == "subfield" else [g]
+    names = ""
+    if "subfield" in groups:
+        require_tables(("dim_topics",), "aggregate(by='subfield')")
+        names = (f"LEFT JOIN read_parquet('{config.table_glob('dim_topics')}') t "
+                 f"ON t.subfield_id = works.subfield")
+    order = [g for g in groups if g != "subfield"]
+    if "subfield" in groups:
+        order += ["P_full DESC", "subfield"]
+
+    selected = "".join(f"{c}, " for c in columns)
     weighted = "sum(w) AS P_frac," if counting == "frac" else ""
-    grouping = f"GROUP BY {', '.join(str(i + 1) for i in range(len(groups)))}" if groups else ""
-    ordering = f"ORDER BY {', '.join(str(i + 1) for i in range(len(groups)))}" if groups else ""
+    grouping = f"GROUP BY {', '.join(columns)}" if columns else ""
+    ordering = f"ORDER BY {', '.join(order)}" if order else ""
 
     con = connection()
     _register(con, ids)
@@ -215,6 +230,7 @@ def aggregate(ids, by="publication_year", counting="full", reliable_only=True):
             100.0 * sum(is_in_top_10_percent::INT * w) / sum(w) AS PP_top10_{counting},
             100.0 * sum(is_in_top_1_percent::INT * w) / sum(w) AS PP_top1_{counting}
         FROM works
+        {names}
         {grouping}
         {ordering}
     """).fetchdf()

@@ -16,11 +16,12 @@ A question, and the call that answers it. The numbers are from the OpenAlex snap
 | a whole field, as a world check | `aggregate(resolve(field=17, year=2020), by=None)` | MNCS 1.00, PP(top 10%) 10.12 |
 | only corresponding-author papers | `resolve(institution=..., corresponding=True)` | EPFL 2020–2024: 8,699 scored, MNCS 1.81 |
 | a fair comparison of institutions | `aggregate(ids, counting="frac")` | [below](#compare-institutions) |
-| per subfield, with names | `aggregate(ids, by="subfield")` merged with `dimension("topics")` | sort by `P_full`; see [Querying](querying.md#indicators-per-group) |
+| per subfield, with names | `aggregate(ids, by="subfield")` | largest subfield first, with `subfield_name`; see [Querying](querying.md#indicators-per-group) |
 | one paper or a paper list | `get_metrics(["W2103094658"])` | one row per id, including papers that are not scored |
 | why a paper is not scored | `explain(ids)`, then `failed_criteria` | [Which papers are scored](querying.md#which-papers-are-scored) |
 | open access split | one `resolve(..., oa_status=s)` per status | EPFL 2023: closed MNCS 0.85, green 2.09, diamond 1.02 |
 | a DOI list | `resolve(doi=["10.1038/nature12373", "10.1126/science.1244693"])` | `[1981213426, 2159974629]` |
+| each DOI next to its work id | `resolve_dois(dois)` | one row per DOI, in the order given; see [Querying](querying.md#a-list-of-dois) |
 | works newer than the snapshot, or a filter OAM lacks | ids from the OpenAlex API, then `aggregate` | [paginate](querying.md#a-query-oam-cannot-express) |
 
 Three requests need more than one call.
@@ -54,7 +55,7 @@ oam.aggregate(list(both), by=None)   # 2,160 works, 1,298 scored, MNCS 2.55
 
 ## Top papers with titles
 
-`get_metrics` has the scores. The title is one call to the OpenAlex API. EPFL, 2022, the three scored papers with the highest MNCS:
+`get_metrics` has the scores. The title is one call to the OpenAlex API. EPFL, 2022, the three scored papers with the highest NCS:
 
 ```python
 import requests

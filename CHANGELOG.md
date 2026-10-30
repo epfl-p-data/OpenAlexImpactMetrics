@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+`oam.resolve_dois(dois)` returns a DataFrame of `doi` and `work_id`, one row per DOI in the order given and spelled as given, so a publication list joins back onto its scores. A DOI the snapshot does not have gets an empty `work_id`. A DOI OpenAlex gives to several works gets one row per work. It used to return the sorted ids, as `resolve(doi=...)` still does.
+
+`aggregate(by="subfield")` adds `subfield_name` and puts the largest subfield first, within the other groups when there are any.
+
+The metrics guide explains full, fractional and corresponding-author counting on a worked example, and shows how to check whether a few widely shared papers carry a set.
+
+The data format stays 3.
+
 ## 0.3.1
 
 `resolve(doi=...)` no longer leaves the query connection unusable on DuckDB 2.0. The next `aggregate`, `get_metrics` or `resolve` in the same session works.

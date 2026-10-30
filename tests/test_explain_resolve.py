@@ -101,6 +101,15 @@ def test_a_missing_doi_is_reported(capsys):
     assert "· 2 of 3 DOIs are not in the snapshot" in capsys.readouterr().out
 
 
+def test_resolve_dois_lines_up_with_the_input():
+    table = oam.resolve_dois(["10.1000/missing", "https://doi.org/10.1000/OAM-101",
+                              "10.1000/oam-101", ""])
+    assert list(table.doi) == ["10.1000/missing", "https://doi.org/10.1000/OAM-101"]
+    assert table.work_id.isna().tolist() == [True, False]
+    assert table.work_id.iloc[1] == 101
+    assert oam.resolve_dois([]).empty
+
+
 def test_a_doi_lookup_leaves_the_connection_usable():
     assert oam.resolve(doi="10.1000/oam-101") == [101]
     table = oam.aggregate([101], by=None)

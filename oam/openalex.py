@@ -63,14 +63,3 @@ def clean_orcid(orcid):
 def clean_doi(doi):
     doi = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:)", "", str(doi).strip().lower())
     return doi or None
-
-
-def unique_dois(dois):
-    """The cleaned DOIs of one DOI or many, de-duplicated, order kept."""
-    wanted, seen = [], set()
-    for raw in values(dois):
-        doi = clean_doi(raw)
-        if doi and doi not in seen:
-            seen.add(doi)
-            wanted.append(doi)
-    return wanted

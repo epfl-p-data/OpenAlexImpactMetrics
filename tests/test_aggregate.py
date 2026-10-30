@@ -58,6 +58,16 @@ def test_grouping():
     assert set(both.is_proceedings) == {False, True}
 
 
+def test_subfield_groups_carry_the_name_largest_first():
+    table = oam.aggregate(_IDS + [201, 202], by="subfield", reliable_only=False)
+    assert list(table.subfield) == [11, 22]
+    assert list(table.subfield_name) == ["Artificial Intelligence", "Algebra"]
+    assert list(table.P_full) == [4, 2]
+    by_year = oam.aggregate(_IDS + [201, 202], by=["publication_year", "subfield"],
+                            reliable_only=False)
+    assert list(by_year.columns[:3]) == ["publication_year", "subfield", "subfield_name"]
+
+
 def test_unknown_grouping_is_rejected():
     with pytest.raises(ValueError, match="cannot group"):
         oam.aggregate(_IDS, by="doi")

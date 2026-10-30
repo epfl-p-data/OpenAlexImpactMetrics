@@ -9,7 +9,7 @@ The query functions read the data from `oam.download()`. If it is not there, the
 | Function | What it does | Where |
 |---|---|---|
 | `oam.resolve(...)` | Paper ids matching a filter | [Choose the papers](#choose-the-papers) |
-| `oam.resolve_dois(dois)` | Paper ids for a DOI list | [A list of DOIs](#a-list-of-dois) |
+| `oam.resolve_dois(dois)` | The paper id behind each DOI, in the order given | [A list of DOIs](#a-list-of-dois) |
 | `oam.work_ids(ids)` | Integers from `W…` ids | [A list of OpenAlex work ids](#a-list-of-openalex-work-ids) |
 | `oam.get_metrics(ids)` | One row of scores per paper | [Scores per paper](#scores-per-paper) |
 | `oam.explain(ids)` | Whether each paper is in scope, and which rules it failed | [Which papers are scored](#which-papers-are-scored) |
@@ -44,6 +44,21 @@ ids = oam.resolve(doi=["10.1038/nature12373", "10.1126/science.1244693"])
 ```
 
 Only DOIs present in the snapshot come back, so the list can be shorter than the input, and the call prints how many are missing. `doi=` takes one DOI or a list, with or without `https://doi.org/`, and does not combine with the other arguments.
+
+To keep the link between each DOI and its scores, use `resolve_dois`. It returns one row per DOI, in the order given and spelled as given, with an empty `work_id` for a DOI the snapshot does not have:
+
+```python
+dois = oam.resolve_dois(["10.1038/nature12373", "10.0000/missing"])
+dois.merge(oam.get_metrics(dois.work_id.dropna()), on="work_id", how="left")
+```
+
+```
+                 doi     work_id
+ 10.1038/nature12373  2159974629
+     10.0000/missing        <NA>
+```
+
+OpenAlex gives a few DOIs to more than one work. Such a DOI has one row per work.
 
 ### A filter
 
@@ -205,7 +220,7 @@ What `resolve` can filter and what `aggregate` can group by are different lists.
 | | `resolve(...)` filter | `aggregate(by=...)` |
 |---|---|---|
 | publication year | yes | yes |
-| subfield | yes | yes, as an id |
+| subfield | yes | yes, with its name |
 | field, domain | yes | |
 | journal or conference | `proceedings=` | `is_proceedings` |
 | institution, country, author, ORCID, funder, source | yes | |
@@ -220,15 +235,20 @@ for status in ("closed", "green", "bronze", "hybrid", "gold", "diamond"):
     print(status, len(papers))
 ```
 
-`subfield` is the OpenAlex id. The name is a merge with the topics table:
+`by="subfield"` adds `subfield_name` and puts the largest subfield first. EPFL 2023:
 
 ```python
-by_subfield = oam.aggregate(ids, by="subfield").sort_values("P_full", ascending=False)
-names = oam.dimension("topics", ids=by_subfield.subfield)
-by_subfield.merge(names, left_on="subfield", right_on="subfield_id")
+oam.aggregate(oam.resolve(institution="I5124864", year=2023), by="subfield").head(3).round(2)
 ```
 
-`aggregate` returns the rows in subfield-id order, so sort by `P_full` before reading them.
+```
+ subfield                         subfield_name  P_full  TCS_full  MCS_full  MNCS_full  PP_top10_full  PP_top1_full
+     2208 Electrical and Electronic Engineering     395   12876.0     32.60       2.35          24.05          5.82
+     1702               Artificial Intelligence     276    4218.0     15.28       1.77          23.91          1.81
+     2204                Biomedical Engineering     219    3897.0     17.79       1.45          16.89          2.74
+```
+
+Combined with another column, such as `by=["publication_year", "subfield"]`, the subfields are ordered by size within each year. `oam.dimension("topics", ids=...)` gives the field and domain of a subfield.
 
 The scores follow the build. They are not arguments of `aggregate`. [Building](building.md#citation-window-and-self-citations) is where a window or the removal of self-citations is chosen.
 

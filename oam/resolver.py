@@ -288,7 +288,12 @@ def resolve(institution=None, author=None, doi=None, year=None,
                 or any(dimensions.values()):
             raise ValueError("doi= does not combine with other arguments; filter "
                              "oam.get_metrics(ids) instead")
-        return resolve_dois(doi)
+        found = resolve_dois(doi)
+        missing = int(found.work_id.isna().sum())
+        if missing:
+            print(f"· {missing} of {found.doi.nunique()} DOIs are not in the snapshot. "
+                  f"oam.resolve_dois() lists them")
+        return sorted(set(found.work_id.dropna().astype("int64").tolist()))
 
     sql = local_sql(year=year, corresponding=corresponding, proceedings=proceedings,
                     institution=institution, author=author, **dimensions)
@@ -296,31 +301,27 @@ def resolve(institution=None, author=None, doi=None, year=None,
 
 
 def resolve_dois(dois):
-    """Numeric work IDs for a list of DOIs.
+    """The work id behind each DOI, as a DataFrame of doi and work_id.
 
-    Only DOIs the snapshot knows come back, so the result is usually shorter than
-    the input; use it when you have a publication list rather than an affiliation.
+    One row per DOI, in the order given and spelled as given, so the result joins
+    back onto a publication list. A DOI the snapshot does not have gets an empty
+    work_id. A DOI OpenAlex gives to several works gets one row per work.
     """
     require_tables(("work_doi",), "resolve_dois()")
-
-    wanted = openalex.unique_dois(dois)
-    if not wanted:
-        return []
+    given = pd.DataFrame({"doi": openalex.values(dois)})
+    given["key"] = given.doi.map(openalex.clean_doi)
+    given = given.dropna(subset=["key"]).drop_duplicates("key")
+    if given.empty:
+        return pd.DataFrame({"doi": [], "work_id": pd.array([], dtype="Int64")})
     con = connection()
-    con.register("_dois", pd.DataFrame({"doi": wanted}))
-    doi_table = config.table_glob("work_doi")
-    # One fetchall. A second statement ended with fetchone leaves its result
-    # open on DuckDB 2.0, and the next query on this connection then fails.
-    rows = con.execute(f"""
-        SELECT w.doi, w.work_id
-        FROM read_parquet('{doi_table}') w
-        JOIN _dois d ON d.doi = w.doi
-    """).fetchall()
-    found = sorted({work_id for _, work_id in rows})
-    missing = len(wanted) - len({doi for doi, _ in rows})
-    if missing:
-        print(f"· {missing} of {len(wanted)} DOIs are not in the snapshot")
-    return found
+    con.register("_dois", given[["key"]])
+    found = con.execute(f"""
+        SELECT w.doi AS key, w.work_id
+        FROM read_parquet('{config.table_glob("work_doi")}') w
+        JOIN _dois d ON d.key = w.doi
+    """).fetchdf()
+    table = given.merge(found, on="key", how="left")
+    return table[["doi", "work_id"]].astype({"work_id": "Int64"}).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
