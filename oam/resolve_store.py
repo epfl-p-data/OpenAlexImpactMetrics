@@ -186,15 +186,19 @@ def status():
 
 
 def print_status():
+    from .bundle import installed
+    bundle = installed()
     st = status()
     print("▶ Resolve warehouse (build step 3)")
+    if bundle:
+        print(f"  downloaded archive, snapshot {bundle['snapshot']}")
     for table, info in st["tables"].items():
         if info["bytes"]:
             rows = f"{info['rows']:,}" if info["rows"] is not None else "—"
             when = f"  built {info['at']}" if info["at"] else ""
             print(f"  ✓ {table:<18} {rows:>15} rows  "
                   f"{human_bytes(info['bytes']):>9}{when}")
-        else:
+        elif not bundle:
             print(f"  · {table:<18} not built")
     staged = table_size(config.RESOLVE_RAW_DIR)
     if staged:

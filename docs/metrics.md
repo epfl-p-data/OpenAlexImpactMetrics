@@ -85,6 +85,39 @@ EPFL in 2014, fractional counting:
 
 The same 4,151 papers weigh 2,062 once each institution's share is taken. The MNCS is 1.73, and 19.6% are in the top 10%.
 
+## When full and fractional counting disagree
+
+For a large institution the two are close. For a small one they can answer different questions, and the default is full counting.
+
+The Private University in the Principality of Liechtenstein (`I4210121311`), 2018 to 2024, on the snapshot of 14 October 2026:
+
+| Counting | What was counted | MNCS |
+|---|---|---|
+| full | 247 papers | 1.69 |
+| fractional | 52.63 paper-shares | 0.84 |
+| corresponding author only | 100 scored papers | 0.9 |
+
+```python
+ids = oam.resolve(institution="I4210121311", year=(2018, 2024))
+oam.aggregate(ids, by=None).round(2)
+oam.aggregate(ids, by=None, counting="frac").round(2)
+oam.aggregate(oam.resolve(institution="I4210121311", year=(2018, 2024), corresponding=True), by=None).round(2)
+```
+
+Full counting says the university is cited well above the world. Fractional counting and corresponding authorship say the papers it accounts for sit below the world average.
+
+The gap is the papers written with many other institutions. This is the check:
+
+```python
+m = oam.get_metrics(ids)
+m = m[m.scored]
+wide = m.institutions_distinct_count >= 20
+```
+
+Papers with 20 or more institutions carry 59.6% of the citations and 1.4% of the fractional weight. The most-cited paper, `W2883415719`, has 167 institutions, 1,162 citations and an NCS of 41.67. The next, `W3182807823`, has 795 institutions and 766 citations.
+
+A year with few scored papers makes a two-decimal MNCS look more precise than it is. The reliability rule protects the world cohort, not the size of the set you are quoting.
+
 ## Which papers are scored
 
 EPFL's name is on 5,788 works from 2014, and 4,213 are in scope. Two things remove papers from the summary.
@@ -102,6 +135,8 @@ The window is chosen when the metric layers are built, and the data keeps one co
 ```python
 oam.build(steps="metrics", citation_window=4)
 ```
+
+A downloaded archive already holds one count, and this call stops. Changing it is a full build into another directory. [Building](building.md#citation-window-and-self-citations) has the disk and the time.
 
 A paper from 2025 scored with a window of 4 has not had four years. It is still scored, on the citations that have arrived. The publication year is enough to see that; there is no separate flag.
 

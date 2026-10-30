@@ -48,3 +48,27 @@ def test_a_window_and_self_citations_can_be_imposed(built, tmp_path):
 def test_a_window_of_zero_is_rejected():
     with pytest.raises(ValueError, match="citation_window"):
         oam.build(citation_window=0)
+
+
+def test_build_on_a_download_refuses_and_keeps_the_files(built, tmp_path, capsys):
+    tar = oam.export(tmp_path / "dist")
+    dest = tmp_path / "installed"
+    oam.set_data_dir(dest)
+    oam.download(source=tar)
+    metrics = dest / "metrics" / "work_metrics" / "part-0.parquet"
+    before = metrics.read_bytes()
+    capsys.readouterr()
+    assert oam.build(steps="metrics", citation_window=4) is False
+    out = capsys.readouterr().out
+    assert "set_data_dir" in out
+    assert metrics.read_bytes() == before
+    assert (dest / "bundle.json").is_file()
+
+
+def test_profile_reports_the_bundle_analysis(built, tmp_path, capsys):
+    tar = oam.export(tmp_path / "dist")
+    oam.set_data_dir(tmp_path / "installed")
+    oam.download(source=tar)
+    capsys.readouterr()
+    oam.profile()
+    assert "all years, self-citations kept" in capsys.readouterr().out

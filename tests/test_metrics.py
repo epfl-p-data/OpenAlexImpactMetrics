@@ -67,7 +67,7 @@ def test_conference_cohort_scores():
 def test_xpack_citation_does_not_count():
     # 901 cites 104, and 901 is xpack, so 104 stays uncited.
     assert _row(104).citations == 0
-    assert oam.get_metrics([901]).in_scope.iloc[0] == False  # noqa: E712
+    assert oam.get_metrics([901]).scored.iloc[0] == False  # noqa: E712
 
 
 def test_a_self_citation_counts_by_default():

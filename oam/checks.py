@@ -318,7 +318,7 @@ def report(deep=False, include_xpack=None):
 
     ok = _render(_evaluate(runnable), " (deep)" if deep else "")
     if skipped:
-        print(f"  {len(skipped)} checks skipped; they need tables a download does not include.")
+        print("  skipped: " + ", ".join(skipped))
     return ok
 
 

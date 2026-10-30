@@ -97,8 +97,10 @@ def profile():
                    count(DISTINCT subfield), min(publication_year), max(publication_year)
             FROM read_parquet('{cohorts}')""")
 
+    from .bundle import installed
     from .metrics import describe_analysis, recorded_analysis
-    out["analysis"] = describe_analysis(recorded_analysis())
+    analysis = (installed() or {}).get("analysis") or recorded_analysis()
+    out["analysis"] = describe_analysis(analysis)
     if config.table_dir("work_metrics").is_dir():
         # The same cut the checks use: a year at least four back has had time to be
         # cited, so its top shares are worth comparing with the name of the indicator.

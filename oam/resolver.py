@@ -72,6 +72,9 @@ _LETTERS = {
 # work_authors, so on its own there is nothing for it to apply to.
 _CORRESPONDABLE = ("institution", "country", "author", "orcid")
 
+_OA_STATUSES = ("closed", "green", "bronze", "hybrid", "gold", "diamond")
+_YEAR_FORMS = '2020, (2014, 2023) or "2014-2023"'
+
 
 # ---------------------------------------------------------------------------
 # SQL fragments
@@ -116,9 +119,30 @@ def _normalise(name, given):
         return _numbers(name, given)
     if name == "orcid":
         return [openalex.clean_orcid(v) for v in given]
-    # Matching how OpenAlex writes them: country codes upper case, the rest lower.
-    fold = str.upper if name == "country" else str.lower
-    return [fold(str(value).strip()) for value in given]
+    if name == "country":
+        return [_country(value) for value in given]
+    if name == "oa_status":
+        return [_one_of("oa_status", value, _OA_STATUSES) for value in given]
+    if name == "work_type":
+        return [_one_of("work_type", value, config.OPENALEX_TYPES) for value in given]
+    return [str(value).strip().lower() for value in given]
+
+
+def _country(value):
+    code = str(value).strip().upper()
+    if len(code) == 2 and code.isalpha():
+        return code
+    raise ValueError(
+        f"country={value!r} must be a two-letter country code. "
+        'Rows from oam.dimension("institutions", search=...) carry country_code.'
+    )
+
+
+def _one_of(name, value, allowed):
+    text = str(value).strip().lower()
+    if text in allowed:
+        return text
+    raise ValueError(f"{name}={value!r} must be one of {', '.join(allowed)}.")
 
 
 def _in(column, values):
@@ -146,11 +170,20 @@ def _pair_select(name, values, corresponding):
 
 def _year_condition(year):
     """Reuses the API's own parsing so both backends read a year the same way."""
-    spec = openalex.year_filter(year)
-    if "-" in spec:
-        low, high = spec.split("-", 1)
-        return f"publication_year BETWEEN {int(low)} AND {int(high)}"
-    return f"publication_year = {int(spec)}"
+    try:
+        spec = openalex.year_filter(year).strip()
+        if "-" in spec:
+            low_s, high_s = spec.split("-", 1)
+            low, high = int(low_s), int(high_s)
+        else:
+            low = high = int(spec)
+    except (TypeError, ValueError):
+        raise ValueError(f"year={year!r} is not a year. Use {_YEAR_FORMS}.") from None
+    if low > high:
+        raise ValueError(f"year={year!r} starts after it ends. Use {_YEAR_FORMS}.")
+    if low == high and "-" not in spec:
+        return f"publication_year = {low}"
+    return f"publication_year BETWEEN {low} AND {high}"
 
 
 def _topic_condition(level, values):
@@ -223,7 +256,7 @@ def resolve(institution=None, author=None, doi=None, year=None,
 
     Arguments are ANDed, so resolve(institution=..., funder=..., year=...) is works
     from that institution, funded by that funder, in those years. Out-of-scope works
-    are included; get_metrics reports in_scope per work rather than dropping them.
+    are included; get_metrics reports scored per work rather than dropping them.
 
     >>> resolve(institution="I5124864", year=(2014, 2023))
     >>> resolve(country="CH", funder="F4320306076", year=2023)
@@ -264,12 +297,21 @@ def resolve_dois(dois):
         return []
     con = connection()
     con.register("_dois", pd.DataFrame({"doi": wanted}))
-    return [row[0] for row in con.execute(f"""
+    doi_table = config.table_glob("work_doi")
+    found = [row[0] for row in con.execute(f"""
         SELECT DISTINCT w.work_id
-        FROM read_parquet('{config.table_glob("work_doi")}') w
+        FROM read_parquet('{doi_table}') w
         JOIN _dois d ON d.doi = w.doi
         ORDER BY 1
     """).fetchall()]
+    matched = con.execute(f"""
+        SELECT count(*) FROM _dois d
+        WHERE d.doi IN (SELECT doi FROM read_parquet('{doi_table}'))
+    """).fetchone()[0]
+    missing = len(wanted) - matched
+    if missing:
+        print(f"· {missing} of {len(wanted)} DOIs are not in the snapshot")
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -305,12 +347,20 @@ def dimension(kind, ids=None, search=None, limit=None):
     conditions = []
     if ids is not None:
         conditions.append(_in(id_column, _numbers(kind, openalex.values(ids))))
+    order = id_column
     if search:
-        pattern = "'%" + str(search).replace("'", "''") + "%'"
+        needle = str(search).replace("'", "''")
+        folded = f"strip_accents(lower('{needle}'))"
+        contains = f"strip_accents(lower('%{needle}%'))"
+        prefix = f"strip_accents(lower('{needle}%'))"
         conditions.append("(" + " OR ".join(
-            f"{c} ILIKE {pattern}" for c in name_columns) + ")")
+            f"strip_accents(lower({c})) LIKE {contains}" for c in name_columns) + ")")
+        exact = " OR ".join(f"strip_accents(lower({c})) = {folded}" for c in name_columns)
+        starts = " OR ".join(
+            f"strip_accents(lower({c})) LIKE {prefix}" for c in name_columns)
+        order = f"CASE WHEN {exact} THEN 0 WHEN {starts} THEN 1 ELSE 2 END, {id_column}"
     return connection().execute(
         f"SELECT * FROM read_parquet('{config.table_glob(table)}') "
         f"{'WHERE ' + ' AND '.join(conditions) if conditions else ''} "
-        f"ORDER BY {id_column} {f'LIMIT {int(limit)}' if limit else ''}"
+        f"ORDER BY {order} {f'LIMIT {int(limit)}' if limit else ''}"
     ).fetchdf()

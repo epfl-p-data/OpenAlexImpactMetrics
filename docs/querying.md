@@ -33,7 +33,7 @@ oam.aggregate(ids)
 ids = oam.resolve(doi=["10.1038/nature12373", "10.1126/science.1244693"])
 ```
 
-Only DOIs present in the snapshot come back, so the list can be shorter than the input. `doi=` takes one DOI or a list, with or without `https://doi.org/`, and does not combine with the other arguments.
+Only DOIs present in the snapshot come back, so the list can be shorter than the input, and the call prints how many are missing. `doi=` takes one DOI or a list, with or without `https://doi.org/`, and does not combine with the other arguments.
 
 ### A filter
 
@@ -46,10 +46,12 @@ oam.resolve(field=17, year=2023, proceedings=True)        # computer science con
 
 Different arguments are combined with AND. A list given to one argument is combined with OR: `country=["CH", "FR"]` is Switzerland or France.
 
+A bare number works wherever a prefixed id does: `5124864` and `"I5124864"` are the same institution, and the same is true of authors, funders, sources, subfields, fields and domains.
+
 | Argument | Matches |
 |---|---|
 | `institution=` | An institution, including its labs and hospitals |
-| `country=` | Any institution in that country, for example `"CH"` |
+| `country=` | A two-letter country code, for example `"CH"`. A country name is an error |
 | `author=` / `orcid=` | An OpenAlex author id, or an ORCID |
 | `funder=` | A funder id |
 | `source=` | A journal or conference id |
@@ -69,7 +71,13 @@ oam.dimension("funders", search="Nationalfonds")   # the Swiss National Science 
 oam.dimension("topics")          # every subfield, field and domain
 ```
 
-The search matches the names OpenAlex stores, which are sometimes in the local language: the Swiss National Science Foundation is `Schweizerischer Nationalfonds zur Förderung der Wissenschaftlichen Forschung`.
+Search matches the stored OpenAlex display name, and the ROR or ISSN when the table has one. It ignores accents, so `"Neuchatel"` finds Neuchâtel, and an exact name comes before a name that only starts with the word, which comes before any other substring. It does not match acronyms or alternate names: `"EPFL"` is not the École polytechnique fédérale de Lausanne, and `"NSF"` is not the National Science Foundation. There is no author search. A researcher is selected by ORCID or by OpenAlex author id.
+
+`limit=` keeps the first rows of that order. A broad word such as `"Nature"` matches hundreds of sources, and the journal Nature is the first row:
+
+```python
+oam.dimension("sources", search="Nature", limit=10)
+```
 
 ### A query OAM cannot express
 
@@ -121,7 +129,7 @@ why.loc[~why.in_scope, "failed_criteria"].explode().value_counts()
 
 `found` is false for an id the snapshot does not contain at all. The rules are described in [Scope](scope.md).
 
-A paper can pass every rule and still not be scored when `is_xpac` is true. It is an OpenAlex xpack record, and those are left out of the comparison: 46,548 papers on the 2026-10-14 snapshot. [Scope](scope.md#what-is-not-configurable) explains why.
+A paper can pass every rule and still not be scored. `is_xpack` is true for an OpenAlex xpack record, and those are left out of the comparison: 46,548 papers on the 2026-10-14 snapshot. [Scope](scope.md#what-is-not-configurable) explains why. A paper with no publication year is also left out: 2 papers on that snapshot. `explain` reports `is_xpack`, and a missing year is a null `publication_year`.
 
 ## Scores per paper
 
@@ -129,11 +137,26 @@ A paper can pass every rule and still not be scored when `is_xpac` is true. It i
 works = oam.get_metrics(ids)
 ```
 
-One row per id, including papers that are not scored; their score columns are empty. The columns are `in_scope`, `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations`, `ncs`, `citation_normalized_percentile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `openalex_fwci`, `openalex_citation_normalized_percentile`, `openalex_is_in_top_10_percent`, `openalex_is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
+One row per id, including papers that are not scored; their score columns are empty. `scored` is true when the paper has a score. The other columns are `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `citations`, `ncs`, `citation_normalized_percentile`, `is_in_top_10_percent`, `is_in_top_1_percent`, `openalex_fwci`, `openalex_citation_normalized_percentile`, `openalex_is_in_top_10_percent`, `openalex_is_in_top_1_percent`, `cohort_n_works` and `cohort_is_reliable`.
 
 `citations` and the scores built from it follow the citation window and the self-citation rule the data was built with. The download uses every citation up to the snapshot and keeps self-citations. `oam.status()` prints the choices.
 
-`oam.get_metrics(ids, explain=True)` adds the scope columns from `explain` to the same frame.
+`oam.get_metrics(ids, explain=True)` adds `in_scope`, `is_xpack`, `failed_criteria` and the scope columns from `explain`. `in_scope` means the paper passed the rules. `scored` means it has a row in the score table. A paper in scope is not scored when it is an xpack record, or when it has no publication year.
+
+### Joining to OpenAlex
+
+Titles, DOIs and the other descriptive fields are not in the download. Join them from OpenAlex on the work id, with the `W` prefix put back on the integer:
+
+```python
+import requests
+
+works = oam.get_metrics(ids)
+wanted = "|".join(f"W{i}" for i in works.work_id.head(2))
+r = requests.get(
+    "https://api.openalex.org/works",
+    params={"filter": f"openalex:{wanted}", "select": "id,doi,title"},
+)
+```
 
 ## Indicators per group
 
@@ -154,7 +177,21 @@ EPFL 2014, `by="is_proceedings"`:
 
 The 3,402 journal articles have an MNCS of 2.04. The 749 conference papers have an MNCS of 1.52.
 
-`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent`, `is_in_top_1_percent` and `cohort_is_reliable`. Name a subfield with `oam.dimension("topics", ids=...)`.
+`by` accepts `publication_year`, `subfield`, `is_proceedings`, `institutions_distinct_count`, `is_in_top_10_percent`, `is_in_top_1_percent` and `cohort_is_reliable`. Open access, funder and source are not among them. An open-access split is one resolve per status:
+
+```python
+for status in ("closed", "green", "bronze", "hybrid", "gold", "diamond"):
+    papers = oam.resolve(institution="I5124864", year=2023, oa_status=status)
+    print(status, len(papers))
+```
+
+`subfield` is the OpenAlex id. The name is a merge with the topics table:
+
+```python
+by_subfield = oam.aggregate(ids, by="subfield")
+names = oam.dimension("topics", ids=by_subfield.subfield)
+by_subfield.merge(names, left_on="subfield", right_on="subfield_id")
+```
 
 The scores follow the build. They are not arguments of `aggregate`. [Building](building.md#citation-window-and-self-citations) is where a window or the removal of self-citations is chosen.
 

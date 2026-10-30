@@ -118,7 +118,16 @@ To keep the xpack records, a third of OpenAlex that the default build leaves out
 
 ## Citation window and self-citations
 
-The default count includes every citation up to the snapshot, self-citations included. Both are choices of the metric layers, so the data holds one set of scores and a query has nothing to switch. Changing either one reruns step 2, about 2 minutes, and leaves the store in place.
+The default count includes every citation up to the snapshot, self-citations included. Both are choices of the metric layers, so the data holds one set of scores and a query has nothing to switch.
+
+A downloaded archive holds that one count. It has no store, so it cannot be rebuilt in place. Changing the window, or dropping self-citations, is a full build from the OpenAlex snapshot into another directory, with the disk and the time listed above:
+
+```python
+oam.set_data_dir("/Volumes/data/oam")
+oam.build(citation_window=4, exclude_self_citations=True)
+```
+
+On a store you already built, the same change reruns step 2, about 2 minutes, and leaves the store in place:
 
 ```python
 oam.build(steps="metrics", citation_window=4, exclude_self_citations=True)

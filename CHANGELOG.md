@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+`get_metrics` calls the score-table flag `scored`. `in_scope` stays on `explain`, where it means the work passed the scope rules. `explain` and `get_metrics(explain=True)` return `is_xpack` and `failed_criteria`. A paper in scope is not scored when it is an xpack record, or when it has no publication year.
+
+`resolve` rejects a country name, an unknown open-access status, an unknown work type, a year it cannot parse, and a range whose start is after its end. A DOI list prints how many DOIs the snapshot does not contain. `dimension` search ignores accents and returns an exact name before a prefix and a prefix before another substring.
+
+`oam.download()` reads `bundle.json` from the end of the archive before transferring it. A format this version cannot read is refused first. Two archives with the same snapshot date and different checksums are not the same install. A missing Zenodo record is an error. The download line names the record, the snapshot and the size.
+
+`oam.build()` on a downloaded archive stops and leaves the files in place. `oam.profile()` reads the citation count from the archive. `oam.status()` labels a download as a downloaded archive, and `oam.check()` names the checks a download skips.
+
+The data format stays 3. This version reads the archive published with 0.2.
+
 ## 0.2.0
 
 The citation window and self-citations are choices of the build, and each dataset holds one set of scores.

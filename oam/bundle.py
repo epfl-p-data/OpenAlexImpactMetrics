@@ -285,39 +285,61 @@ def _existing_snapshot():
     return info["snapshot"] if info else None
 
 
-def _from_zenodo(record, replace):
-    """The URL of the Zenodo archive to fetch, or None when it is already installed.
+def _remote_meta(url, size):
+    """``bundle.json`` from the end of a remote tar, without downloading it.
 
-    The snapshot is read from the file name before anything is fetched, so a
-    data directory holding another snapshot is refused without first pulling
-    12 GiB. When Zenodo cannot be reached, complete installed data is kept.
+    The member is written last, and on the published archive it sits inside the
+    final megabyte. The server has to honour the range request.
+    """
+    if not size:
+        raise RuntimeError(f"the archive at {url} has no size")
+    window = min(size, 1024 * 1024)
+    start = size - window
+    resp = requests.get(url, headers={"Range": f"bytes={start}-"}, timeout=(30, 60))
+    resp.raise_for_status()
+    if resp.status_code != 206:
+        raise RuntimeError(f"the archive server did not honour a range request for {url}")
+    data = resp.content
+    idx = data.rfind(b'{\n  "format"')
+    if idx < 0:
+        raise RuntimeError(f"could not read bundle.json from {url}")
+    meta, _ = json.JSONDecoder().raw_decode(data[idx:].decode("utf-8"))
+    return meta
+
+
+def _from_zenodo(record, replace):
+    """The URL to fetch, or None when this exact bundle is already installed.
+
+    Identity is the checksum of each file, read from the remote bundle.json
+    before the transfer. A connection error keeps the installed data. A missing
+    record is an error. A different snapshot is refused until replace=True.
     """
     try:
-        url, name = _zenodo_file(record)
-    except requests.RequestException:
+        url, name, size, record_id = _zenodo_file(record)
+        meta = _remote_meta(url, size)
+    except (requests.ConnectionError, requests.Timeout):
         if not replace and _satisfied():
             print("  Zenodo could not be reached, so a newer snapshot was not looked for.")
             return None
         raise
-    offered = _snapshot_of(name)
-    existing = _existing_snapshot()
-    if not replace and existing == offered and _satisfied():
+    except requests.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else "error"
+        asked = record or config.ZENODO_RECORD
+        raise RuntimeError(f"Zenodo record {asked} returned HTTP {code}.") from exc
+    _check_format(meta, name)
+    if not replace and _archive_already_present(meta):
         return None
-    if existing and offered and existing != offered and not replace:
+    incoming = meta.get("snapshot")
+    existing = _existing_snapshot()
+    if existing and incoming and existing != incoming and not replace:
         raise RuntimeError(
             f"{config.DATA_DIR} holds snapshot {existing}, and Zenodo offers "
-            f"{offered}. Pass replace=True to switch to {offered}, or record= the "
+            f"{incoming}. Pass replace=True to switch to {incoming}, or record= the "
             f"id of the {existing} version (listed on the Zenodo page) to keep it."
         )
+    print(f"▶ Downloading {name} "
+          f"(record {record_id}, snapshot {incoming}, {human_bytes(size)})")
     return url
-
-
-def _snapshot_of(name):
-    """oam-2026-10-14.tar -> 2026-10-14, the name export() gives an archive."""
-    stem = Path(name).name
-    if stem.startswith("oam-") and stem.endswith(".tar"):
-        return stem[len("oam-"):-len(".tar")]
-    return None
 
 
 def _locate(source):
@@ -348,7 +370,7 @@ def _as_path(source):
 
 
 def _zenodo_file(record=None):
-    """(download URL, file name) of the one oam-*.tar in a Zenodo record.
+    """URL, filename, size and resolved record id of the one oam-*.tar on a record.
 
     Zenodo redirects an all-versions record to its newest version and serves a
     version's own record as it is, so the same request covers both.
@@ -361,21 +383,22 @@ def _zenodo_file(record=None):
         )
     resp = requests.get(f"{config.ZENODO_API}{record}", timeout=60)
     resp.raise_for_status()
+    payload = resp.json()
     matches = []
-    for entry in resp.json().get("files") or []:
+    for entry in payload.get("files") or []:
         key = str(entry.get("key") or entry.get("filename") or "")
         if not Path(key).name.startswith("oam-") or not key.endswith(".tar"):
             continue
         links = entry.get("links") or {}
         url = links.get("self") or links.get("content")
         if url:
-            matches.append((url, key))
+            matches.append((url, key, int(entry.get("size") or 0)))
     if len(matches) != 1:
         raise RuntimeError(
             f"Zenodo record {record} does not have exactly one oam-*.tar "
             f"({len(matches)} found)."
         )
-    return matches[0]
+    return matches[0] + (payload.get("id") or record,)
 
 
 def _materialize(src):
@@ -410,7 +433,6 @@ def _download_file(url, dest):
         mode = "ab" if resp.status_code == 206 else "wb"
         written = have
         last = 0.0
-        print(f"▶ Downloading {dest.name}")
         with dest.open(mode) as fh:
             for chunk in resp.iter_content(1024 * 1024):
                 if not chunk:

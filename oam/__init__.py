@@ -82,6 +82,11 @@ def build(reset=False, steps=None, workers=8, include_xpack=False,
                         an existing store.
     """
     _metrics.validate_analysis(citation_window, exclude_self_citations)
+    if installed():
+        print("A downloaded archive holds one citation count and no store, "
+              "so it cannot be rebuilt in place.")
+        print("  Build into another directory with oam.set_data_dir(...).")
+        return False
     selected = _steps(steps)
     with _report.tee("build"):
         if reset:

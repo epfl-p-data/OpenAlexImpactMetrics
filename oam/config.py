@@ -204,6 +204,35 @@ SUBFIELD_SQL = "TRY_CAST(str_split(primary_topic.subfield.id, '/')[-1] AS INTEGE
 IS_CORE_SQL = "COALESCE(primary_location.source.is_core, FALSE)"
 IS_PROCEEDINGS_SQL = "COALESCE(primary_location.raw_type = 'proceedings-article', FALSE)"
 
+# The OpenAlex work-type vocabulary, https://api.openalex.org/work-types.
+OPENALEX_TYPES = (
+    "article",
+    "book",
+    "book-chapter",
+    "book-review",
+    "conference-abstract",
+    "conference-paper",
+    "data-paper",
+    "dataset",
+    "dissertation",
+    "editorial",
+    "erratum",
+    "letter",
+    "libguides",
+    "other",
+    "paratext",
+    "peer-review",
+    "preprint",
+    "reference-entry",
+    "report",
+    "retraction",
+    "review",
+    "software",
+    "software-paper",
+    "standard",
+    "supplementary-materials",
+)
+
 SCOPE = {
     "is_english": (
         "lower(COALESCE(language, '')) = 'en'",

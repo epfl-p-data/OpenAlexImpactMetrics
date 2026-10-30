@@ -5,6 +5,8 @@
 
 OAM computes citation impact metrics for any set of papers: a university, a researcher, a country, a funder's portfolio or a list of DOIs. It tells you whether those papers were cited more or less than comparable papers worldwide. It runs on your own machine, and the data comes from [OpenAlex](https://openalex.org).
 
+OAM returns those metrics keyed by OpenAlex work id. Titles, authors, venues and any other descriptive field come from OpenAlex itself, joined on `work_id`.
+
 Comparing papers is only fair within a well-defined scope. OpenAlex indexes almost everything, not only research papers but also preprints, datasets, theses and editorials, and these are cited very differently. OAM keeps only peer-reviewed research papers, about 13% of OpenAlex. Only these papers are scored, and only the citations they make are counted. [Which papers are scored](#which-papers-are-scored) lists the rules.
 
 ## How this differs from OpenAlex
@@ -29,7 +31,7 @@ import oam
 oam.download()
 ```
 
-The files go to `~/oam-data`. To put them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable. You need about 25 GB free while the archive is unpacked, and 12 GB once it is installed.
+The files go to `~/oam-data`, or to `./data` when you work from a clone of this repository. To put them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable. You need about 25 GB free while the archive is unpacked, and 12 GB once it is installed.
 
 Then score a set of papers:
 
@@ -68,7 +70,7 @@ oam.aggregate(ids).round(2)
 
 ### A researcher
 
-Jennifer Doudna, from her [ORCID](https://orcid.org/0000-0001-9161-999X). Of 755 works, 391 are scored. `by=None` gives one row for the whole set.
+Jennifer Doudna, from her [ORCID](https://orcid.org/0000-0001-9161-999X). A researcher is selected by ORCID or by OpenAlex author id. Of 755 works, 391 are scored. `by=None` gives one row for the whole set.
 
 ```python
 ids = oam.resolve(orcid="0000-0001-9161-999X")
@@ -106,7 +108,7 @@ You can select papers the same way by author, funder, journal, field or DOI. [Qu
 - **MNCS_full** compares those papers with similar papers worldwide. The download counts every citation up to the snapshot, self-citations included. The world average is 1. A value of 2 means cited twice as much.
 - **PP_top10_full** is the share of papers among the 10% most cited of their cohort. For the world it sits a little above 10%, because papers tied at the threshold are all counted in. **PP_top1_full** is the same for the top 1%.
 
-A recent paper has had less time to be cited. It is compared only with papers from its own year, so MNCS and the top shares can be read across years, while TCS and MCS fall for recent years. To count a fixed number of years, or to drop self-citations, the data is rebuilt with that choice. [Building](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md#citation-window-and-self-citations) shows the arguments.
+A recent paper has had less time to be cited. It is compared only with papers from its own year, so MNCS and the top shares can be read across years, while TCS and MCS fall for recent years. For a small institution, compare full and fractional counting before quoting an MNCS. [When the two disagree](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md#when-full-and-fractional-counting-disagree) shows a university whose shared papers carry most of the citations. To count a fixed number of years, or to drop self-citations, the data is rebuilt with that choice. [Building](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/building.md#citation-window-and-self-citations) shows the arguments.
 
 [How the scores work](https://github.com/epfl-p-data/OpenAlexImpactMetrics/blob/main/docs/metrics.md) explains the other columns, and full and fractional counting.
 
@@ -134,7 +136,7 @@ The data is built from the public OpenAlex snapshot and released under CC0. `oam
 oam.download(record=23770181)    # the 2026-10-14 snapshot, built with OAM 0.2
 ```
 
-Record 23493155 is the same snapshot date built with OAM 0.1. OAM 0.2 does not read it.
+Record 23493155 is the same snapshot date built with OAM 0.1. OAM 0.2 and later do not read it.
 
 If you publish results, cite the version you used. Each version has its own DOI, and `oam.status()` shows which snapshot is installed.
 

@@ -44,8 +44,12 @@ def test_old_format_is_refused_and_replaced(built, tmp_path, monkeypatch):
         oam.get_metrics([101])
 
     fetched = []
-    monkeypatch.setattr(bundle, "_zenodo_file",
-                        lambda record=None: ("https://zenodo.invalid/oam.tar", "oam-2026-09-23.tar"))
+    remote = json.loads(config.BUNDLE_PATH.read_text())
+    remote["format"] = config.BUNDLE_FORMAT
+    monkeypatch.setattr(
+        bundle, "_zenodo_file",
+        lambda record=None: ("https://zenodo.invalid/oam.tar", "oam-2026-09-23.tar", 1000, 1))
+    monkeypatch.setattr(bundle, "_remote_meta", lambda url, size: remote)
 
     def stop(src):
         fetched.append(src)
@@ -125,12 +129,18 @@ def _installed_from(tar, tmp_path):
     oam.download(source=tar)
 
 
-def _zenodo_offers(monkeypatch, name, seen=None):
+def _zenodo_offers(monkeypatch, name, seen=None, meta=None):
     def fake(record=None):
         if seen is not None:
             seen.append(record)
-        return "https://zenodo.invalid/" + name, name
+        return "https://zenodo.invalid/" + name, name, 1000, 23770181
     monkeypatch.setattr(bundle, "_zenodo_file", fake)
+
+    def remote(url, size):
+        if meta is not None:
+            return meta
+        return json.loads(config.BUNDLE_PATH.read_text())
+    monkeypatch.setattr(bundle, "_remote_meta", remote)
     monkeypatch.setattr(bundle, "_materialize",
                         lambda src: pytest.fail(f"downloaded {src}"))
 
@@ -143,8 +153,56 @@ def test_latest_already_installed_downloads_nothing(built, tmp_path, monkeypatch
 
 def test_newer_snapshot_needs_replace_before_downloading(built, tmp_path, monkeypatch):
     _installed_from(oam.export(tmp_path / "dist"), tmp_path)
-    _zenodo_offers(monkeypatch, "oam-2027-01-15.tar")
+    meta = json.loads(config.BUNDLE_PATH.read_text())
+    meta["snapshot"] = "2027-01-15"
+    _zenodo_offers(monkeypatch, "oam-2027-01-15.tar", meta=meta)
     with pytest.raises(RuntimeError, match="replace=True"):
+        oam.download()
+
+
+def test_same_snapshot_with_a_different_checksum_is_not_installed(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    meta = json.loads(config.BUNDLE_PATH.read_text())
+    for spec in meta["files"].values():
+        spec["sha256"] = "0" * 64
+    fetched = []
+    monkeypatch.setattr(
+        bundle, "_zenodo_file",
+        lambda record=None: ("https://zenodo.invalid/oam.tar", "oam-2026-09-23.tar", 1000, 1))
+    monkeypatch.setattr(bundle, "_remote_meta", lambda url, size: meta)
+
+    def stop(src):
+        fetched.append(src)
+        raise RuntimeError("fetched")
+
+    monkeypatch.setattr(bundle, "_materialize", stop)
+    with pytest.raises(RuntimeError, match="fetched"):
+        oam.download()
+    assert fetched
+
+
+def test_a_missing_record_raises(built, tmp_path, monkeypatch):
+    _installed_from(oam.export(tmp_path / "dist"), tmp_path)
+    response = requests.Response()
+    response.status_code = 404
+
+    def missing(record=None):
+        raise requests.HTTPError("404", response=response)
+
+    monkeypatch.setattr(bundle, "_zenodo_file", missing)
+    with pytest.raises(RuntimeError, match="99999999"):
+        oam.download(record=99999999)
+
+
+def test_wrong_format_is_refused_before_download(monkeypatch):
+    monkeypatch.setattr(
+        bundle, "_zenodo_file",
+        lambda record=None: ("https://zenodo.invalid/oam.tar", "oam-2026-09-23.tar", 1000, 1))
+    monkeypatch.setattr(
+        bundle, "_remote_meta",
+        lambda url, size: {"format": config.BUNDLE_FORMAT - 1, "snapshot": "2026-09-23", "files": {}})
+    monkeypatch.setattr(bundle, "_download_file", lambda *a, **k: pytest.fail("downloaded"))
+    with pytest.raises(RuntimeError, match="format"):
         oam.download()
 
 

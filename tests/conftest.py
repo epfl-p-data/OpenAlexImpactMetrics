@@ -191,14 +191,17 @@ def _write_resolve(data):
     _copy(con, """
         SELECT * FROM (VALUES
             (5001, 'EPFL', 'CH', 'education', 'https://ror.org/02s376052'),
-            (5002, 'CNRS', 'FR', 'government', 'https://ror.org/02feahw73')
+            (5002, 'CNRS', 'FR', 'government', 'https://ror.org/02feahw73'),
+            (5003, 'Université de Neuchâtel', 'CH', 'education', NULL)
         ) t(institution_id, display_name, country_code, type, ror)
         ORDER BY institution_id
     """, config.table_dir("dim_institutions") / "part-0.parquet")
     _copy(con, """
         SELECT * FROM (VALUES
             (1, 'Nature', '0028-0836', 'journal', 'GB', TRUE),
-            (2, 'NeurIPS', NULL, 'conference', 'US', FALSE)
+            (2, 'NeurIPS', NULL, 'conference', 'US', FALSE),
+            (3, 'Nature Communications', NULL, 'journal', 'GB', TRUE),
+            (4, 'Journal of Nature', NULL, 'journal', 'GB', TRUE)
         ) t(source_id, display_name, issn_l, type, country_code, is_core)
         ORDER BY source_id
     """, config.table_dir("dim_sources") / "part-0.parquet")

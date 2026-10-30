@@ -467,11 +467,8 @@ def print_status():
     st = status()
     print("▶ Store (build step 1)")
     if st.get("downloaded"):
-        from .bundle import rows_for
-        rows = rows_for("works_status")
-        rows_s = f"{rows:,} rows, " if rows else ""
-        print(f"  · downloaded — {rows_s}"
-              f"{human_bytes(st['tables']['works_status'])} of works_status")
+        from .bundle import installed
+        print(f"  downloaded archive, snapshot {installed()['snapshot']}")
         return
     if not st.get("files"):
         print(f"  · not built — {st.get('reason', 'nothing processed yet')}")

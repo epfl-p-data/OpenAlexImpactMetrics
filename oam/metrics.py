@@ -258,17 +258,19 @@ def status():
 
 def print_status():
     from .bundle import installed
+    bundle = installed()
     st = status()
-    missing = "build only, not downloaded" if installed() else "not built"
     print("▶ Metric layers (build step 2)")
+    if bundle:
+        print(f"  downloaded archive, snapshot {bundle['snapshot']}")
     for table, info in st["tables"].items():
         if info["bytes"]:
             rows = f"{info['rows']:,}" if info["rows"] is not None else "—"
             when = f"  built {info['at']}" if info["at"] else ""
             print(f"  ✓ {table:<16} {rows:>13} rows  "
                   f"{human_bytes(info['bytes']):>9}{when}")
-        else:
-            print(f"  · {table:<16} {missing}")
+        elif not bundle:
+            print(f"  · {table:<16} not built")
     if st["config"]:
         print(f"  config: {st['config']}")
 

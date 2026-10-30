@@ -69,10 +69,13 @@ def _register(con, ids):
 def get_metrics(ids, explain=False):
     """Per-work metrics, one row per distinct input id.
 
-    Ids that are not in the metric population come back with in_scope = False and
+    Ids that are not in the metric population come back with scored = False and
     null metrics rather than being dropped, so the result always lines up with the
-    input. Pass explain=True to also learn why: it adds `found` and one column per
-    scope criterion, at the cost of scanning works_status instead of only work_metrics.
+    input. Pass explain=True to also learn why: it adds whether the work was found,
+    whether it passed the scope rules, whether it is an xpack record, which rules
+    failed, and one column per scope criterion. That scans works_status as well as
+    work_metrics. A paper in scope is not scored when it is an xpack record, or
+    when it has no publication year.
     """
     require_tables(("work_metrics",), "get_metrics()")
     if explain:
@@ -83,7 +86,7 @@ def get_metrics(ids, explain=False):
     select = f"""
         SELECT
             i.work_id,
-            m.work_id IS NOT NULL AS in_scope,
+            m.work_id IS NOT NULL AS scored,
             m.publication_year,
             m.subfield,
             m.is_proceedings,
@@ -107,10 +110,10 @@ def get_metrics(ids, explain=False):
     if not explain:
         return metrics
 
-    return metrics.merge(
-        _criteria(con)[["work_id", "found"] + list(_scope_criteria())],
-        on="work_id", how="left",
-    )
+    why = _criteria(con)
+    columns = (["work_id", "found", "in_scope", "is_xpack", "failed_criteria"]
+               + list(_scope_criteria()))
+    return metrics.merge(why[columns], on="work_id", how="left")
 
 
 def explain(ids):
@@ -144,7 +147,7 @@ def _criteria(con):
             COALESCE(s.in_scope, FALSE) AS in_scope,
             s.publication_year,
             {", ".join(f"s.{c}" for c in criteria)},
-            s.is_xpac,
+            s.is_xpac AS is_xpack,
             CASE WHEN s.work_id IS NULL THEN NULL ELSE list_filter([
                 {failed}
             ], lambda x: x IS NOT NULL) END AS failed_criteria

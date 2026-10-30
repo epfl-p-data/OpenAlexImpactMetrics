@@ -32,8 +32,26 @@ def test_explain_names_the_failed_rule():
 
 def test_out_of_scope_work_is_reported_but_not_scored():
     row = oam.get_metrics([401]).iloc[0]
-    assert bool(row.in_scope) is False
+    assert bool(row.scored) is False
     assert row.ncs != row.ncs  # NaN
+
+
+def test_explain_on_get_metrics_shows_why_a_score_is_missing():
+    rows = oam.get_metrics([101, 401, 901], explain=True).set_index("work_id")
+    assert bool(rows.loc[101, "scored"]) is True
+    assert bool(rows.loc[101, "in_scope"]) is True
+    assert bool(rows.loc[101, "is_xpack"]) is False
+    assert list(rows.loc[101, "failed_criteria"]) == []
+
+    assert bool(rows.loc[401, "scored"]) is False
+    assert bool(rows.loc[401, "in_scope"]) is False
+    assert list(rows.loc[401, "failed_criteria"]) == ["is_english"]
+
+    assert bool(rows.loc[901, "scored"]) is False
+    assert bool(rows.loc[901, "in_scope"]) is True
+    assert bool(rows.loc[901, "is_xpack"]) is True
+    assert "is_xpack" in oam.explain([901]).columns
+    assert "is_xpac" not in oam.explain([901]).columns
 
 
 def test_resolve_institution_country_and_year():
@@ -60,6 +78,34 @@ def test_wrong_letter_and_unknown_argument():
         oam.resolve(institution="W101")
     with pytest.raises(TypeError, match="topic"):
         oam.resolve(topic="algebra")
+
+
+def test_a_bad_filter_is_rejected():
+    with pytest.raises(ValueError, match="country_code"):
+        oam.resolve(country="Switzerland")
+    with pytest.raises(ValueError, match="oa_status"):
+        oam.resolve(oa_status="open")
+    with pytest.raises(ValueError, match="work_type"):
+        oam.resolve(work_type="paper")
+    with pytest.raises(ValueError, match="2014-2023"):
+        oam.resolve(year="recent")
+    with pytest.raises(ValueError, match="starts after"):
+        oam.resolve(year=(2024, 2020))
+    assert oam.resolve(country="ch", year=2014) == [101, 102]
+    assert oam.resolve(oa_status="Gold") == [101]
+    assert oam.resolve(work_type="article", institution="I5001") == [101, 102, 201]
+
+
+def test_a_missing_doi_is_reported(capsys):
+    assert oam.resolve(doi=["10.1000/oam-101", "10.1000/missing", "10.1000/also"]) == [101]
+    assert "· 2 of 3 DOIs are not in the snapshot" in capsys.readouterr().out
+
+
+def test_dimension_search_folds_accents_and_ranks_exact_names():
+    found = oam.dimension("institutions", search="Neuchatel")
+    assert list(found.institution_id) == [5003]
+    sources = oam.dimension("sources", search="Nature")
+    assert list(sources.source_id) == [1, 3, 4]
 
 
 def test_dimension_looks_up_both_ways():
