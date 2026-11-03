@@ -162,7 +162,8 @@ These rules are fixed for the data you download. To score a different set of pap
 The data is built from the public OpenAlex snapshot and released under CC0. `oam.download()` installs the latest version. To keep one snapshot, pass its Zenodo record id, listed under Versions on the [Zenodo page](https://doi.org/10.5281/zenodo.23493154):
 
 ```python
-oam.download(record=23770181)    # the 2026-10-14 snapshot, built with OAM 0.2
+oam.download(record=23914942)    # the 2026-10-14 snapshot, with the citation links
+oam.download(record=23770181)    # the same snapshot without the links, built with OAM 0.2
 ```
 
 Record 23493155 is the same snapshot date built with OAM 0.1. OAM 0.2 and later do not read it.
