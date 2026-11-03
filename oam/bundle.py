@@ -1,15 +1,17 @@
 """Share a finished build, or install someone else's, without rebuilding it.
 
 One archive holds every table a query reads: the scores, the scope status,
-the dimension tables and the lookup tables resolve() uses. The build-only
-tables (edges, citation_counts, works_scope) stay behind; a download cannot
-rebuild the data, and nothing queries them.
+the dimension tables and the lookup tables resolve() uses. The citation
+links travel beside it, in ``edges-<snapshot>.tar``, and only
+``download(edges=True)`` installs them. citation_counts and works_scope stay
+behind either way: a download cannot rebuild the scores.
 
 export() compacts a table that is still thousands of part files into one
 Parquet file sorted by work_id, which is how get_metrics and explain look
 rows up. A table that is already one file is copied unchanged: the resolve
 tables are sorted on their lookup key, and re-sorting them would make every
-query read the whole file.
+query read the whole file. The citation links have no work_id column, so
+they keep the order the build wrote.
 
 download() installs that archive into the data directory. With no source it
 uses the latest version of the Zenodo record in config.ZENODO_RECORD, or the
@@ -47,7 +49,21 @@ def installed():
         "scope_hash": meta.get("scope_hash"),
         "analysis": meta.get("analysis"),
         "files": meta.get("files") or {},
+        "edges": meta.get("edges"),
     }
+
+
+def citation_links():
+    """The installed citation-link manifest, or None when its files are absent."""
+    info = installed()
+    edges = (info or {}).get("edges")
+    if not edges or not edges.get("files"):
+        return None
+    for rel, spec in edges["files"].items():
+        path = config.DATA_DIR / rel
+        if not path.is_file() or path.stat().st_size != spec.get("bytes"):
+            return None
+    return edges
 
 
 def rows_for(table):
@@ -68,8 +84,12 @@ def rows_for(table):
 # Export
 # ---------------------------------------------------------------------------
 
-def export(path):
-    """Write `oam-<snapshot>.tar` into the directory `path`. Returns the tar path."""
+def export(path, edges=False):
+    """Write `oam-<snapshot>.tar` into the directory `path`. Returns the tar path.
+
+    edges  also write `edges-<snapshot>.tar` beside it, the citation links.
+           ``export_edges`` writes that file on its own.
+    """
     if not config.STORE_STATE_PATH.is_file():
         raise RuntimeError(
             f"no snapshot record at {config.STORE_STATE_PATH}. "
@@ -151,6 +171,72 @@ def export(path):
         shutil.rmtree(staging, ignore_errors=True)
 
     print(f"\n✓ {dest.name}  {human_bytes(dest.stat().st_size)}")
+    if edges:
+        export_edges(path)
+    return dest
+
+
+def export_edges(path):
+    """Write `edges-<snapshot>.tar` into the directory `path`. Returns the tar path.
+
+    One Parquet file of the citation links, in the order the build wrote them,
+    plus ``edges.json``. The main archive is left untouched.
+    """
+    if not config.STORE_STATE_PATH.is_file():
+        raise RuntimeError(
+            f"no snapshot record at {config.STORE_STATE_PATH}. "
+            f"export_edges() reads a finished build; run oam.build() first."
+        )
+    if table_size(config.table_dir("edges")) == 0:
+        raise RuntimeError(
+            "export_edges() needs the citation links. Run oam.build() first."
+        )
+
+    snapshot = json.loads(config.STORE_STATE_PATH.read_text())
+    out_dir = Path(path).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"edges-{snapshot.get('date')}.tar"
+    staging = out_dir / f".oam-export-edges-{os.getpid()}"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir()
+
+    print(f"▶ Exporting citation links from {config.table_dir('edges')}")
+    print(f"  snapshot : {snapshot.get('date')}")
+    print(f"  archive  : {dest}")
+    try:
+        con = connect(staging / "_tmp")
+        rel = (config.table_dir("edges").relative_to(config.DATA_DIR)
+               / "part-0.parquet").as_posix()
+        target = staging / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        rows = _write_table(con, "edges", target)
+        files = {rel: _file_record(target, rows)}
+        print(f"  ✓ {'edges':<20} {rows:>15,} rows  {human_bytes(files[rel]['bytes'])}")
+
+        meta = {
+            "format": config.EDGES_FORMAT,
+            "snapshot": snapshot.get("date"),
+            "scope_hash": config.scope_hash(snapshot.get("scope")),
+            "oam_version": _version(),
+            "files": files,
+        }
+        manifest = staging / "edges.json"
+        manifest.write_text(json.dumps(meta, indent=2) + "\n")
+
+        tmp_tar = dest.with_suffix(".tar.partial")
+        if tmp_tar.exists():
+            tmp_tar.unlink()
+        with tarfile.open(tmp_tar, "w") as archive:
+            archive.add(target, arcname=rel)
+            target.unlink()
+            # Last, so a range request can read it without the whole archive.
+            archive.add(manifest, arcname="edges.json")
+        os.replace(tmp_tar, dest)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    print(f"\n✓ {dest.name}  {human_bytes(dest.stat().st_size)}")
     return dest
 
 
@@ -202,7 +288,7 @@ def _version():
 # Download
 # ---------------------------------------------------------------------------
 
-def download(source=None, replace=False, record=None):
+def download(source=None, replace=False, record=None, edges=False):
     """Install the published data into the data directory. Returns its snapshot date.
 
     source  None downloads from Zenodo. Otherwise a .tar path, a directory
@@ -212,9 +298,28 @@ def download(source=None, replace=False, record=None):
             record id of one version pins that snapshot.
     replace wipe a data directory built from a different snapshot first.
             Refused without this, so a download cannot mix two releases.
+    edges   also install the citation links. From Zenodo that is the
+            ``edges-<snapshot>.tar`` on the same record. From a local source it
+            is the one ``edges-*.tar`` beside the main archive. An https URL
+            cannot carry them. 9.2 GiB on top of the main archive for the
+            2026-10-14 snapshot.
     """
     if source is not None and record is not None:
         raise ValueError("pass source or record, not both")
+    if edges and _is_url(source):
+        raise RuntimeError(
+            "edges=True installs the citation links from Zenodo, or from a "
+            "local directory next to the main archive. An https URL is only "
+            "the main archive."
+        )
+    snapshot = _download_archive(source, replace, record)
+    if edges:
+        _install_edges(source, record)
+    return snapshot
+
+
+def _download_archive(source, replace, record):
+    """Install the main archive. Returns the installed snapshot date."""
     if source is None:
         src = _from_zenodo(record, replace)
         if src is None:
@@ -241,6 +346,129 @@ def download(source=None, replace=False, record=None):
     _install(path, meta)
     print(f"✓ installed snapshot {incoming} into {config.DATA_DIR}")
     return installed()["snapshot"]
+
+
+def _is_url(source):
+    return isinstance(source, str) and source.startswith(("http://", "https://"))
+
+
+def _install_edges(source, record):
+    """Install the citation links that match the archive already in place."""
+    if source is None:
+        _install_edges_from_zenodo(record)
+        return
+    path = _locate_edges(source)
+    meta = _read_tar_meta(path, "edges.json")
+    _check_edges(meta, path)
+    if _edges_satisfied(meta):
+        print(f"✓ citation links already installed at {config.DATA_DIR}")
+        return
+    print(f"▶ Installing citation links from {Path(path).name}")
+    _install(path, meta, manifest="edges.json", record=_record_edges)
+    _report_edges(meta)
+
+
+def _install_edges_from_zenodo(record):
+    try:
+        url, name, size, record_id = _zenodo_file(record, prefix="edges-")
+        meta = _remote_meta(url, size, member="edges.json")
+    except (requests.ConnectionError, requests.Timeout):
+        if _edges_satisfied():
+            print("  Zenodo could not be reached, so the installed citation links were kept.")
+            return
+        raise
+    except requests.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else "error"
+        asked = record or config.ZENODO_RECORD
+        raise RuntimeError(f"Zenodo record {asked} returned HTTP {code}.") from exc
+    _check_edges(meta, name)
+    if _edges_satisfied(meta):
+        print(f"✓ citation links already installed at {config.DATA_DIR}")
+        return
+    print(f"▶ Downloading {name} "
+          f"(record {record_id}, snapshot {meta.get('snapshot')}, {human_bytes(size)})")
+    path = _materialize(url)
+    meta = _read_tar_meta(path, "edges.json")
+    _check_edges(meta, path)
+    _install(path, meta, manifest="edges.json", record=_record_edges)
+    _report_edges(meta)
+
+
+def _report_edges(meta):
+    rows = sum(spec.get("rows") or 0 for spec in meta["files"].values())
+    print(f"✓ citation links installed into {config.DATA_DIR} ({rows:,} rows)")
+
+
+def _locate_edges(source):
+    """The one edges-*.tar next to a local main archive."""
+    as_path = _as_path(source)
+    if as_path is None:
+        raise RuntimeError("citation links need a local file or directory, or Zenodo")
+    directory = as_path if as_path.is_dir() else as_path.parent
+    matches = sorted(directory.glob("edges-*.tar"))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected one edges-*.tar in {directory}, found {len(matches)}"
+        )
+    return matches[0]
+
+
+def _check_edges(meta, path):
+    """Refuse links this OAM cannot read, or links from another snapshot or scope."""
+    name = Path(path).name
+    if meta.get("format") != config.EDGES_FORMAT:
+        raise RuntimeError(
+            f"{name} is citation-link format {meta.get('format')}; "
+            f"this OAM reads format {config.EDGES_FORMAT}."
+        )
+    info = installed()
+    if not info:
+        raise RuntimeError(
+            f"citation links need the main archive installed in {config.DATA_DIR} first."
+        )
+    if meta.get("snapshot") != info.get("snapshot"):
+        raise RuntimeError(
+            f"{name} is snapshot {meta.get('snapshot')}, and {config.DATA_DIR} holds "
+            f"{info.get('snapshot')}. The citation links have to be the same snapshot."
+        )
+    if meta.get("scope_hash") != info.get("scope_hash"):
+        raise RuntimeError(
+            f"{name} was built with a different scope than the data in {config.DATA_DIR}."
+        )
+
+
+def _edges_satisfied(meta=None):
+    """True when the recorded citation links are on disk, and match `meta` when given."""
+    info = installed()
+    edges = (info or {}).get("edges")
+    if not edges or edges.get("format") != config.EDGES_FORMAT or not edges.get("files"):
+        return False
+    recorded = edges["files"]
+    if meta is not None:
+        if edges.get("snapshot") != meta.get("snapshot") or edges.get("scope_hash") != meta.get("scope_hash"):
+            return False
+        offered = meta.get("files") or {}
+        if set(recorded) != set(offered):
+            return False
+        for rel, spec in offered.items():
+            if recorded[rel].get("sha256") != spec.get("sha256"):
+                return False
+    for rel, spec in recorded.items():
+        path = config.DATA_DIR / rel
+        if not path.is_file() or path.stat().st_size != spec.get("bytes"):
+            return False
+    return True
+
+
+def _record_edges(meta):
+    """Keep the citation-link manifest inside the installed bundle.json."""
+    if not config.BUNDLE_PATH.is_file():
+        raise RuntimeError(
+            f"citation links need the main archive installed in {config.DATA_DIR} first."
+        )
+    current = json.loads(config.BUNDLE_PATH.read_text())
+    current["edges"] = meta
+    config.BUNDLE_PATH.write_text(json.dumps(current, indent=2) + "\n")
 
 
 def _satisfied():
@@ -285,8 +513,8 @@ def _existing_snapshot():
     return info["snapshot"] if info else None
 
 
-def _remote_meta(url, size):
-    """``bundle.json`` from the end of a remote tar, without downloading it.
+def _remote_meta(url, size, member="bundle.json"):
+    """A manifest from the end of a remote tar, without downloading it.
 
     The member is written last, and on the published archive it sits inside the
     final megabyte. The server has to honour the range request.
@@ -302,7 +530,7 @@ def _remote_meta(url, size):
     data = resp.content
     idx = data.rfind(b'{\n  "format"')
     if idx < 0:
-        raise RuntimeError(f"could not read bundle.json from {url}")
+        raise RuntimeError(f"could not read {member} from {url}")
     meta, _ = json.JSONDecoder().raw_decode(data[idx:].decode("utf-8"))
     return meta
 
@@ -369,11 +597,13 @@ def _as_path(source):
     return None
 
 
-def _zenodo_file(record=None):
-    """URL, filename, size and resolved record id of the one oam-*.tar on a record.
+def _zenodo_file(record=None, prefix="oam-"):
+    """URL, filename, size and resolved record id of the one ``prefix*.tar`` on a record.
 
     Zenodo redirects an all-versions record to its newest version and serves a
-    version's own record as it is, so the same request covers both.
+    version's own record as it is, so the same request covers both. ``oam-`` is
+    the main archive. ``edges-`` is the optional citation links, and a record
+    without that file is an error only when they were asked for.
     """
     record = record or config.ZENODO_RECORD
     if not record:
@@ -387,15 +617,21 @@ def _zenodo_file(record=None):
     matches = []
     for entry in payload.get("files") or []:
         key = str(entry.get("key") or entry.get("filename") or "")
-        if not Path(key).name.startswith("oam-") or not key.endswith(".tar"):
+        if not Path(key).name.startswith(prefix) or not key.endswith(".tar"):
             continue
         links = entry.get("links") or {}
         url = links.get("self") or links.get("content")
         if url:
-            matches.append((url, key, int(entry.get("size") or 0)))
+            matches.append((url, Path(key).name, int(entry.get("size") or 0)))
     if len(matches) != 1:
+        kind = f"{prefix}*.tar"
+        if prefix == "edges-" and len(matches) == 0:
+            raise RuntimeError(
+                f"Zenodo record {record} has no citation links (no {kind}). "
+                f"This version was published without them."
+            )
         raise RuntimeError(
-            f"Zenodo record {record} does not have exactly one oam-*.tar "
+            f"Zenodo record {record} does not have exactly one {kind} "
             f"({len(matches)} found)."
         )
     return matches[0] + (payload.get("id") or record,)
@@ -465,13 +701,13 @@ def _progress(written, total):
         print(f"\r  {human_bytes(written)}", end="", flush=True)
 
 
-def _read_tar_meta(path):
+def _read_tar_meta(path, member="bundle.json"):
     with tarfile.open(path, "r") as archive:
         try:
-            member = archive.getmember("bundle.json")
+            info = archive.getmember(member)
         except KeyError:
-            raise RuntimeError(f"{path} has no bundle.json; it is not an OAM bundle")
-        return json.load(archive.extractfile(member))
+            raise RuntimeError(f"{path} has no {member}; it is not an OAM archive")
+        return json.load(archive.extractfile(info))
 
 
 def _check_format(meta, path):
@@ -483,14 +719,14 @@ def _check_format(meta, path):
         )
 
 
-def _install(path, meta):
+def _install(path, meta, manifest="bundle.json", record=None):
     staging = config.DATA_DIR / f"_incoming-{os.getpid()}"
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
     print(f"▶ Unpacking and checking {len(meta['files'])} files", flush=True)
     try:
-        _safe_extract(path, staging)
+        _safe_extract(path, staging, manifest)
         _verify(staging, meta)
         _clear_replaced_tables(meta)
         for rel in meta["files"]:
@@ -500,7 +736,10 @@ def _install(path, meta):
             dest = config.DATA_DIR / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src, dest)
-        _write_bundle(meta)
+        if record is None:
+            _write_bundle(meta)
+        else:
+            record(meta)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     # A file the caller pointed at is kept. This only removes the cache copy.
@@ -509,8 +748,12 @@ def _install(path, meta):
         cached.unlink()
 
 
-def _safe_extract(path, dest):
-    """Extract, refusing links and paths that would leave `dest`."""
+def _safe_extract(path, dest, manifest="bundle.json"):
+    """Extract, refusing links and paths that would leave `dest`.
+
+    The manifest stays out of the data directory. ``download`` records it in
+    ``bundle.json`` instead.
+    """
     dest = dest.resolve()
     with tarfile.open(path, "r") as archive:
         for member in archive.getmembers():
@@ -522,7 +765,7 @@ def _safe_extract(path, dest):
             target = (dest / rel).resolve()
             if dest != target and dest not in target.parents:
                 raise RuntimeError(f"refusing an unsafe path in the archive: {member.name}")
-            if member.name == "bundle.json":
+            if member.name == manifest:
                 continue
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
@@ -571,4 +814,23 @@ def _clear_replaced_tables(meta):
 
 
 def _write_bundle(meta):
+    """Write bundle.json, keeping citation links that still match this snapshot.
+
+    A main archive does not carry the links. An entry already on disk is kept
+    when it is the same snapshot and the same scope, and dropped otherwise.
+    """
+    meta = {key: value for key, value in meta.items() if key != "edges"}
+    previous = None
+    if config.BUNDLE_PATH.is_file():
+        previous = json.loads(config.BUNDLE_PATH.read_text())
+    edges = (previous or {}).get("edges")
+    same = (
+        edges
+        and edges.get("snapshot") == meta.get("snapshot")
+        and edges.get("scope_hash") == meta.get("scope_hash")
+    )
+    if same:
+        meta["edges"] = edges
+    elif edges:
+        shutil.rmtree(config.table_dir("edges"), ignore_errors=True)
     config.BUNDLE_PATH.write_text(json.dumps(meta, indent=2) + "\n")

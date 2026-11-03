@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+`oam.download(edges=True)` installs the citation links, the optional `edges-<snapshot>.tar` published beside the main archive on the same Zenodo record. The default download is unchanged. Each link is one paper citing another, with the citing paper's publication year. For the 2026-10-14 snapshot that is 2,171,482,565 links, 9.2 GiB. `oam.export_edges` writes the file, and `oam.export(edges=True)` writes it next to the main archive.
+
+With the links installed, a report can say who cites a paper, count citations by citing year, flag a self-citation and list the references a paper makes. The published scores do not change, and the links do not by themselves rebuild those scores for a different citation window.
+
+The main archive stays format 3. The links have their own format, 1. An older OAM ignores the extra file and still installs the archive. `oam.status()` on a download says whether the links are installed.
+
 ## 0.4.0
 
 `oam.resolve_dois(dois)` returns a DataFrame of `doi` and `work_id`, one row per DOI in the order given and spelled as given, so a publication list joins back onto its scores. A DOI the snapshot does not have gets an empty `work_id`. A DOI OpenAlex gives to several works gets one row per work. It used to return the sorted ids, as `resolve(doi=...)` still does.

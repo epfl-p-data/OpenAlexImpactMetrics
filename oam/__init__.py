@@ -30,7 +30,7 @@ from . import metrics as _metrics
 from . import report as _report
 from . import resolve_store as _resolve_store
 from . import store as _store
-from .bundle import download, export, installed
+from .bundle import citation_links, download, export, export_edges, installed
 from .checks import report as check
 from .config import set_data_dir
 from .query import aggregate, explain, get_metrics, work_ids
@@ -52,8 +52,9 @@ def _package_version():
 __version__ = _package_version()
 
 __all__ = [
-    "aggregate", "build", "check", "dimension", "download", "explain", "export",
-    "get_metrics", "installed", "profile", "resolve", "resolve_dois",
+    "aggregate", "build", "check", "citation_links", "dimension", "download",
+    "explain", "export", "export_edges", "get_metrics", "installed", "profile",
+    "resolve", "resolve_dois",
     "set_data_dir", "status", "work_ids", "config",
 ]
 

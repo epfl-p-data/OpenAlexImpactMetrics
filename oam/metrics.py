@@ -257,12 +257,18 @@ def status():
 
 
 def print_status():
-    from .bundle import installed
+    from .bundle import citation_links, installed
     bundle = installed()
     st = status()
     print("▶ Metric layers")
     if bundle:
         print(f"  downloaded archive, snapshot {bundle['snapshot']}")
+        links = citation_links()
+        if links:
+            rows = sum(spec.get("rows") or 0 for spec in links["files"].values())
+            print(f"  citation links : {rows:,}")
+        else:
+            print("  citation links : not installed. oam.download(edges=True) adds them.")
     for table, info in st["tables"].items():
         if info["bytes"]:
             rows = f"{info['rows']:,}" if info["rows"] is not None else "—"

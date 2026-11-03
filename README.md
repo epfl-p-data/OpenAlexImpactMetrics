@@ -33,6 +33,8 @@ oam.download()
 
 The files go to `~/oam-data`, or to `./data` when you work from a clone of this repository. To put them somewhere else, call `oam.set_data_dir(path)` before downloading, or set the `OAM_DATA_DIR` environment variable. You need about 25 GB free while the archive is unpacked, and 12 GB once it is installed.
 
+The citation links are a separate file on the same record, 9.2 GiB. `oam.download(edges=True)` installs them. Each link is one paper citing another, with the citing paper's publication year. That is enough to see who cites a paper, count citations by citing year, flag a self-citation, and list the references a paper makes. The scores are the same either way. You need about 20 GB free while the links are unpacked, and 9.2 GiB once they are installed.
+
 Then score a set of papers:
 
 ```python

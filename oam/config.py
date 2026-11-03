@@ -94,9 +94,14 @@ DIM_TABLES = ("dim_topics", "dim_institutions", "dim_sources", "dim_funders")
 PROJECTION_VERSION = 3
 
 # Bumped whenever a table oam.download() installs changes. That is not always a store
-# change: the metric columns ship, the edge list does not. A bundle of another format
-# is refused rather than queried as if it had the current columns.
+# change: the metric columns ship in the main archive, and the citation links ship
+# separately, with oam.download(edges=True), under EDGES_FORMAT. A bundle of another
+# format is refused rather than queried as if it had the current columns.
 BUNDLE_FORMAT = 3
+
+# The optional citation-link file. Independent of BUNDLE_FORMAT, so an older OAM
+# still installs the main archive from a Zenodo record that also carries the links.
+EDGES_FORMAT = 1
 
 # The Zenodo record download() fetches from. This is the all-versions record, which
 # Zenodo resolves to its newest version, so a new snapshot needs only a new version

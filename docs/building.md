@@ -73,20 +73,24 @@ oam.build(reset=True, refresh_manifest=True)
 
 ## Publish a release
 
-From a finished build, write the archive `oam.download()` installs:
+From a finished build, write the archive `oam.download()` installs, and the citation links beside it:
 
 ```python
 oam.export("dist")
-# dist/oam-<snapshot>.tar    the tables oam.download() installs
+# dist/oam-<snapshot>.tar       the tables oam.download() installs
+oam.export_edges("dist")
+# dist/edges-<snapshot>.tar     the citation links. oam.download(edges=True)
 ```
 
-Then upload that archive to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the name `oam.export` wrote: `oam.download()` finds the one file whose name starts with `oam-` and ends with `.tar`, and reads the snapshot date from it.
+`oam.export("dist", edges=True)` writes both. `oam.export_edges` on its own leaves an existing main archive untouched, which is what a release of the links for an already published snapshot needs.
 
-The installed data has a format number, 3 in OAM 0.2. A directory written by an older OAM is refused: a query stops, and `oam.download()` fetches the current data even when the snapshot date matches. To keep using the 0.1 data, install OAM 0.1 and pin `record=23493155`.
+Then upload both files to [Zenodo](https://zenodo.org) under the CC0 licence, as a new version of the [existing record](https://doi.org/10.5281/zenodo.23493154). Set the version to the snapshot date. Keep the names the export wrote. `oam.download()` finds the one file whose name starts with `oam-` and ends with `.tar`. The links file must not match that pattern: a second `oam-*.tar` on the record makes every download fail, including for an older OAM that has never heard of the links. `edges-<snapshot>.tar` is the name `export_edges` writes, and an older OAM ignores it.
+
+The installed data has a format number, 3 in OAM 0.2. A directory written by an older OAM is refused: a query stops, and `oam.download()` fetches the current data even when the snapshot date matches. To keep using the 0.1 data, install OAM 0.1 and pin `record=23493155`. The citation links have their own format number, 1. It is not the bundle format, so adding the file does not make an older OAM refuse the main archive.
 
 Nothing in OAM needs to change. `ZENODO_RECORD` in [`oam/config.py`](../oam/config.py) holds the record's all-versions id, `23493154`, which Zenodo resolves to the newest version, so every install of OAM downloads the new snapshot from then on.
 
-The archive records its snapshot date, its scope and a checksum of every file. `oam.download()` checks all three. It refuses to mix two snapshots in one data directory unless called with `replace=True`.
+The archive records its snapshot date, its scope and a checksum of every file. `oam.download()` checks all three. It refuses to mix two snapshots in one data directory unless called with `replace=True`. The links file records the same snapshot and the same scope. `oam.download(edges=True)` refuses a file from a different snapshot or a different scope, and it refuses to install the links before the main archive.
 
 To share a build without Zenodo, send the archive file itself. The recipient installs it with:
 
@@ -120,7 +124,7 @@ To keep the xpack records, a third of OpenAlex that the default build leaves out
 
 The default count includes every citation up to the snapshot, self-citations included. Both are choices of the metric layers, so the data holds one set of scores and a query has nothing to switch.
 
-A downloaded archive holds that one count. It has no store, so it cannot be rebuilt in place. Changing the window, or dropping self-citations, is a full build from the OpenAlex snapshot into another directory, with the disk and the time listed above:
+A downloaded archive holds that one count. It does not include the works the scores were computed from, so it cannot be rebuilt in place. `oam.download(edges=True)` adds the citation links and still does not rebuild the scores. Changing the window, or dropping self-citations, is a full build from the OpenAlex snapshot into another directory, with the disk and the time listed above:
 
 ```python
 oam.set_data_dir("/Volumes/data/oam")
@@ -141,14 +145,15 @@ The choice is part of what the data is. `oam.status()` prints it, `oam.profile()
 
 The Zenodo release runs from a terminal in the repository, with `curl` and `jq`. It reads a Zenodo token from `.env`, which git ignores, as a line `ZENODO_TOKEN=...`. Create the token under Account, Applications on Zenodo, with the `deposit:write` and `deposit:actions` scopes.
 
-1. `oam.export("dist")` from a finished build, then install that archive into an empty directory and re-run the examples in the README.
+1. `oam.export("dist")` from a finished build, and `oam.export_edges("dist")` for the citation links. Install that archive into an empty directory and re-run the examples in the README, then `oam.download(edges=True)` from the same directory and confirm `oam.status()` reports the links.
 2. Create the new version. Zenodo copies the metadata of the latest version, sets the publication date to today, and starts with no file:
 
    ```bash
    set -a; source .env; set +a
    SNAPSHOT=2027-01-15
-   VERSION="$SNAPSHOT (OAM 0.2)"
+   VERSION="$SNAPSHOT (OAM 0.5)"
    NAME=oam-$SNAPSHOT.tar
+   EDGES=edges-$SNAPSHOT.tar
    H="Authorization: Bearer $ZENODO_TOKEN"
    LATEST=$(curl -sfL https://zenodo.org/api/records/23493154 | jq -r .id)
    DRAFT=$(curl -sf -X POST -H "$H" https://zenodo.org/api/records/$LATEST/versions | jq -r .id)
@@ -169,19 +174,23 @@ The Zenodo release runs from a terminal in the repository, with `curl` and `jq`.
    curl -sf -X PUT -H "$H" -H "Content-Type: application/json" -d @dist/draft.json "$API" -o /dev/null
    ```
 
-4. Upload the archive, keeping the name `oam.export` wrote. 12 GiB takes about half an hour:
+4. Upload both archives, keeping the names the export wrote. The main archive is about 12 GiB and takes about half an hour. The links are 9.2 GiB. The links file has to be named `edges-<snapshot>.tar`. A second file whose name starts with `oam-` and ends with `.tar` makes `oam.download()` refuse the record.
+
+   When this version publishes the links for a snapshot whose main archive is already on Zenodo, carry that archive over unchanged instead of writing it again. Zenodo can import the previous version's files into the draft, and re-uploading the same bytes also works. An install that already has those checksums then downloads nothing.
 
    ```bash
-   curl -f -X POST -H "$H" -H "Content-Type: application/json" -d "[{\"key\":\"$NAME\"}]" "$API/files"
-   curl -f -X PUT -H "$H" -H "Content-Type: application/octet-stream" --upload-file "dist/$NAME" "$API/files/$NAME/content" -o /dev/null
-   curl -f -X POST -H "$H" "$API/files/$NAME/commit"
+   for FILE in "$NAME" "$EDGES"; do
+     curl -f -X POST -H "$H" -H "Content-Type: application/json" -d "[{\"key\":\"$FILE\"}]" "$API/files"
+     curl -f -X PUT -H "$H" -H "Content-Type: application/octet-stream" --upload-file "dist/$FILE" "$API/files/$FILE/content" -o /dev/null
+     curl -f -X POST -H "$H" "$API/files/$FILE/commit"
+   done
    ```
 
-5. Check that Zenodo's checksum equals the local one, look over the draft at `https://zenodo.org/uploads/$DRAFT`, and publish. Publishing cannot be undone, and gives the version the DOI `10.5281/zenodo.$DRAFT`:
+5. Check that Zenodo's checksums equal the local ones, look over the draft at `https://zenodo.org/uploads/$DRAFT`, and publish. Publishing cannot be undone, and gives the version the DOI `10.5281/zenodo.$DRAFT`:
 
    ```bash
    curl -sf -H "$H" "$API/files" | jq -r '.entries[].checksum'
-   md5 dist/$NAME
+   md5 dist/$NAME dist/$EDGES
    curl -sf -X POST -H "$H" "$API/actions/publish" -o /dev/null
    ```
 
@@ -197,7 +206,7 @@ Publishing happens from GitHub, with no token stored in the repository. [PyPI](h
 For each release:
 
 1. Set `version` in [`pyproject.toml`](../pyproject.toml) and in [`CITATION.cff`](../CITATION.cff), and push.
-2. On GitHub, create a release named `v` followed by that version, for example `v0.4.0`.
+2. On GitHub, create a release named `v` followed by that version, for example `v0.5.0`.
 
 The [publish workflow](../.github/workflows/publish.yml) runs the [tests](../.github/workflows/tests.yml) on that tag and uploads the package to PyPI only when they pass.
 
